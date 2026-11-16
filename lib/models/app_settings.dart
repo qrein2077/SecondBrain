@@ -40,7 +40,18 @@ class AppSettings {
 
   /// Previous shipped Gemini default — migrate AppData when still this value.
   static const legacyDefaultGeminiModel = 'gemini-2.5-flash';
-  static const defaultGroqModel = 'llama-3.1-8b-instant';
+  /// Free/developer-tier chat model (Llama 3.1/3.3 retired from free tier Aug 2026).
+  static const defaultGroqModel = 'openai/gpt-oss-20b';
+
+  /// Previous shipped Groq default — migrate AppData when still this value.
+  static const legacyDefaultGroqModel = 'llama-3.1-8b-instant';
+
+  /// Also retired from free/developer tier; migrate if still stored.
+  static const legacyRetiredGroqModels = <String>[
+    legacyDefaultGroqModel,
+    'llama-3.3-70b-versatile',
+  ];
+
   static const defaultOpenRouterModel =
       'meta-llama/llama-3.1-8b-instruct:free';
 

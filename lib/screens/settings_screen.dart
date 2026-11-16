@@ -307,7 +307,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               border: OutlineInputBorder(),
               hintText: AppSettings.defaultGroqModel,
               helperText:
-                  'Напр. llama-3.1-8b-instant, llama-3.3-70b-versatile, openai/gpt-oss-20b',
+                  'Напр. openai/gpt-oss-20b, openai/gpt-oss-120b, qwen/qwen3.6-27b',
             ),
           ),
           const SizedBox(height: 8),

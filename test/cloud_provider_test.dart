@@ -12,9 +12,14 @@ void main() {
   test('default cloud models', () {
     const s = AppSettings();
     expect(s.cloudProvider, CloudProvider.groq);
-    expect(s.groqModel, 'llama-3.1-8b-instant');
+    expect(s.groqModel, 'openai/gpt-oss-20b');
     expect(s.openRouterModel, contains(':free'));
     expect(s.cloudModelFor(CloudProvider.gemini), 'gemini-3.8-flash');
     expect(AppSettings.legacyDefaultGeminiModel, 'gemini-2.5-flash');
+    expect(AppSettings.legacyDefaultGroqModel, 'llama-3.1-8b-instant');
+    expect(
+      AppSettings.legacyRetiredGroqModels,
+      contains('llama-3.3-70b-versatile'),
+    );
   });
 }

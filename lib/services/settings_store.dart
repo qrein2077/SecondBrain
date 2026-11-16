@@ -99,13 +99,21 @@ class SettingsStore extends ChangeNotifier {
       await prefs.setString(_kGeminiModel, geminiModel);
     }
 
+    var groqModel =
+        prefs.getString(_kGroqModel) ?? AppSettings.defaultGroqModel;
+    // Migrate retired free-tier Llama IDs (shutdown Aug 2026).
+    if (AppSettings.legacyRetiredGroqModels.contains(groqModel)) {
+      groqModel = AppSettings.defaultGroqModel;
+      await prefs.setString(_kGroqModel, groqModel);
+    }
+
     _settings = AppSettings(
       vaultPath: prefs.getString(_kVaultPath) ?? '',
       ollamaBaseUrl:
           prefs.getString(_kOllamaBaseUrl) ?? 'http://127.0.0.1:11434',
       modelName: prefs.getString(_kModelName) ?? 'qwen2.5:7b',
       geminiModel: geminiModel,
-      groqModel: prefs.getString(_kGroqModel) ?? AppSettings.defaultGroqModel,
+      groqModel: groqModel,
       openRouterModel: prefs.getString(_kOpenRouterModel) ??
           AppSettings.defaultOpenRouterModel,
       llmMode: LlmModeX.fromStorage(prefs.getString(_kLlmMode)),

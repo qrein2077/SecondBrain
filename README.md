@@ -104,9 +104,11 @@ Vault по-прежнему local-first; в облако уходит текст
 
 | Модель | Примечание |
 |--------|------------|
-| `llama-3.1-8b-instant` | **Default** — быстрый free-tier |
-| `llama-3.3-70b-versatile` | Качественнее |
-| `openai/gpt-oss-20b` | Если есть в вашем каталоге Groq |
+| `openai/gpt-oss-20b` | **Default** — быстрый free/developer-tier |
+| `openai/gpt-oss-120b` | Крупнее / качественнее |
+| `qwen/qwen3.6-27b` | Альтернатива (если доступна в каталоге) |
+
+> Llama `llama-3.1-8b-instant` и `llama-3.3-70b-versatile` сняты с free/developer-tier (shutdown Aug 2026). Приложение мигрирует сохранённые значения на `openai/gpt-oss-20b`.
 
 3. Режим **Облако** или **Авто** → Сохранить. Endpoint: `https://api.groq.com/openai/v1/chat/completions`.
 
