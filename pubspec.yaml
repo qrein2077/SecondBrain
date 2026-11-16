@@ -45,6 +45,7 @@ dependencies:
   path_provider: ^2.1.6
   whisper_ggml: ^2.9.0
   url_launcher: ^6.3.3
+  saf: ^2.1.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

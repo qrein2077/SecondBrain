@@ -1,5 +1,9 @@
+import 'dart:io' show Platform;
+
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
+import 'package:saf/saf.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/agent_preset.dart';
@@ -8,6 +12,7 @@ import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
 import '../models/whisper_size.dart';
 import '../services/update_checker.dart';
+import '../services/whisper_stt_service.dart';
 import '../state/app_controller.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -78,10 +83,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _pickVault() async {
+    // Android: SAF document tree with persistable read/write grant.
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        final saf = Saf();
+        final dir = await saf.pickDirectory(
+          writePermission: true,
+          persistablePermission: true,
+        );
+        if (dir != null && mounted) {
+          setState(() => _vaultCtrl.text = dir.uri);
+        }
+        return;
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('SAF: $e — пробуем file_picker…')),
+          );
+        }
+      }
+    }
     final path = await FilePicker.getDirectoryPath(
       dialogTitle: 'Выберите папку Obsidian vault',
     );
-    if (path != null) {
+    if (path != null && mounted) {
       setState(() => _vaultCtrl.text = path);
     }
   }
@@ -325,6 +350,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'Vault',
             style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
           ),
+          const SizedBox(height: 4),
+          Text(
+            !kIsWeb && Platform.isAndroid
+                ? 'Android: «Обзор» → SAF (папка Obsidian). URI content:// '
+                    'с постоянным разрешением. Удаления в SAF — без корзины.'
+                : 'Укажите локальную папку Obsidian vault.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -409,49 +442,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) => setState(() => _qaOnly = v),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Голосовой ввод (Whisper, Windows)',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          Text(
+            WhisperSttService.isSupported
+                ? 'Голосовой ввод (Whisper)'
+                : 'Голосовой ввод',
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
           ),
           const SizedBox(height: 4),
           Text(
-            'Локальный whisper.cpp (ggml). Язык всегда ru. '
-            'Модель скачивается при первом использовании выбранного размера. '
-            'Android: пока скрыто.',
+            WhisperSttService.isSupported
+                ? 'Локальный whisper.cpp (ggml). Язык всегда ru. '
+                    'Модель скачивается при первом использовании '
+                    '(не входит в APK/установщик). '
+                    '${WhisperSttService.platformHint}'
+                : 'Микрофон на этой платформе скрыт. Используйте Windows/Android '
+                    'или вводите текст вручную.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<WhisperSize>(
-            // ignore: deprecated_member_use
-            value: _whisperSize,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              labelText: 'Размер модели Whisper',
+          if (WhisperSttService.isSupported) ...[
+            const SizedBox(height: 8),
+            DropdownButtonFormField<WhisperSize>(
+              // ignore: deprecated_member_use
+              value: _whisperSize,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Размер модели Whisper',
+              ),
+              items: [
+                for (final s in WhisperSize.values)
+                  DropdownMenuItem(value: s, child: Text(s.labelRu)),
+              ],
+              onChanged: (v) {
+                if (v != null) setState(() => _whisperSize = v);
+              },
             ),
-            items: [
-              for (final s in WhisperSize.values)
-                DropdownMenuItem(value: s, child: Text(s.labelRu)),
-            ],
-            onChanged: (v) {
-              if (v != null) setState(() => _whisperSize = v);
-            },
-          ),
-          const SizedBox(height: 6),
-          Text(
-            _whisperSize == WhisperSize.medium
-                ? '⚠ medium: ${_whisperSize.downloadHint}. '
-                    'На слабом ПК лучше small.'
-                : _whisperSize.downloadHint,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _whisperSize == WhisperSize.medium
-                      ? Theme.of(context).colorScheme.error
-                      : null,
-                ),
-          ),
+            const SizedBox(height: 6),
+            Text(
+              _whisperSize == WhisperSize.medium
+                  ? '⚠ medium: ${_whisperSize.downloadHint}. '
+                      'На слабом ПК/телефоне лучше small или base.'
+                  : _whisperSize.downloadHint,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: _whisperSize == WhisperSize.medium
+                        ? Theme.of(context).colorScheme.error
+                        : null,
+                  ),
+            ),
+          ],
           const SizedBox(height: 24),
           const Text(
             'Локальный LLM (Ollama)',
             style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'На Android укажите IP ПК в LAN или Tailscale '
+            '(например http://100.x.y.z:11434). Cleartext HTTP разрешён. '
+            'Либо режим Облако (Groq/OpenRouter/Gemini).',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
           TextField(

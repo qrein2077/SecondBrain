@@ -33,14 +33,31 @@ class WhisperSttService {
   /// Always force Russian for SecondBrain MVP.
   static const forcedLang = 'ru';
 
-  /// Windows (and Linux for local dev). Android/iOS/web: hide mic for now.
+  /// Windows, Linux (dev), and Android (on-device whisper.cpp).
+  /// iOS/web: hide mic for now.
   static bool get isSupported {
     if (kIsWeb) return false;
     try {
-      return Platform.isWindows || Platform.isLinux;
+      return Platform.isWindows || Platform.isLinux || Platform.isAndroid;
     } catch (_) {
       return false;
     }
+  }
+
+  /// Model download happens on first use — not baked into the APK.
+  static String get platformHint {
+    if (kIsWeb) return '';
+    try {
+      if (Platform.isAndroid) {
+        return 'Android: локальный Whisper (ggml). Модель ~466 МБ (small) '
+            'скачивается отдельно; на слабых телефонах лучше base. '
+            'Альтернатива: облако/PC Ollama по LAN/Tailscale.';
+      }
+      if (Platform.isWindows || Platform.isLinux) {
+        return 'Локальный Whisper (whisper_ggml), язык ru.';
+      }
+    } catch (_) {}
+    return '';
   }
 
   void setSize(WhisperSize next) {

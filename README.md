@@ -4,7 +4,7 @@ Local-first AI companion for an Obsidian vault (Windows + Android).
 Default LLM is **local Ollama (Qwen2.5)**; optional **Google Gemini** (AI Studio) via cloud / auto modes.  
 The app **never writes** to the vault until you **Approve** a draft preview. Remotely Save is left alone.
 
-**English (short):** Download `SecondBrain-Setup-*.exe` from [Actions](https://github.com/qrein2077/SecondBrain/actions/workflows/windows-installer.yml) → install → Ollama + `qwen2.5:7b` (default). Optional cloud: Groq / OpenRouter / Gemini (keys in secure storage; Gemini may be region-blocked — try Groq). Update = new setup.exe.
+**English (short):** Windows setup from [Windows Actions](https://github.com/qrein2077/SecondBrain/actions/workflows/windows-installer.yml); Android APK from [Android Actions](https://github.com/qrein2077/SecondBrain/actions/workflows/android-apk.yml) (`SecondBrain-Android.apk`). Ollama + `qwen2.5:7b` (or cloud Groq/OpenRouter/Gemini).
 
 ---
 
@@ -17,20 +17,39 @@ The app **never writes** to the vault until you **Approve** a draft preview. Rem
 - Режим **«Только ответы»** / **«Может править vault»** (переключатель в чате)
 - **RAG-lite:** ответы grounded по выдержкам `.md` (keyword/TF-IDF), чипы «Источники»
 - В режиме правок: агент **сначала уточняет**, затем предлагает пакет `.md` (`create` / `update` / `delete`) → **Утвердить все / Отклонить все** (+ диалог для удалений)
-- **Голосовой ввод (Windows):** локальный Whisper (`whisper_ggml`, default **`small`**, язык **`ru`**); выбор base/small/medium в Настройках; подсветка низкой уверенности (эвристика)
-- **Сессии чата:** несколько историй, переименование/удаление, сохранение между запусками
-- **Wiki-links:** клик по `[[заметка]]` открывает файл; hover — лёгкий preview
-- **Статус LLM** в шапке: путь (Ollama / Groq / …) + online/offline
-- **Пресеты агента** (именованные system prompt; default — уточняющий)
-- **Проверка обновлений** (GitHub Releases → иначе Actions artifact)
+- **Голосовой ввод (Windows + Android):** локальный Whisper (`whisper_ggml`, default **`small`**, язык **`ru`**); выбор base/small/medium; подсветка низкой уверенности (эвристика). Модель качается отдельно от APK.
+- **Сессии чата**, wiki-links, статус LLM, пресеты агента, проверка обновлений
 - Базовые русские подписи в UI
-- Windows-установщик (Inno Setup) + сборка в GitHub Actions
+- **Windows** установщик + **Android APK** (GitHub Actions)
 
-**Пока не входит:** Tailscale, vector RAG, мульти-агенты, полировка Android, Whisper на Android.
+**Пока не входит:** встроенный Tailscale UI, vector RAG, мульти-агенты, подпись Play Store.
 
 ---
 
-## Установка через установщик (рекомендуется)
+## Android: установка APK
+
+1. Скачайте артефакт **`SecondBrain-Android`** / файл `SecondBrain-Android.apk` из [Android workflow](https://github.com/qrein2077/SecondBrain/actions/workflows/android-apk.yml) (успешный run → Artifacts).
+2. На телефоне разрешите установку из неизвестных источников для браузера/файлового менеджера.
+3. Установите APK (debug-подпись, не Play Store).
+4. Откройте **Настройки → Vault → Обзор** и выберите папку Obsidian через **SAF** (системный выбор папки; разрешение сохраняется).
+5. **LLM:**
+   - **Предпочтительно:** Ollama на ПК — в Настройках укажите URL вида `http://100.x.y.z:11434` (Tailscale) или LAN IP. Cleartext HTTP разрешён в манифесте.
+   - Или режим **Облако**: Groq / OpenRouter / Gemini + API-ключ.
+6. Нижняя навигация: **Vault / Заметка / Чат** (те же режимы Q&A, RAG, сессии, wiki, пресеты, что на Windows).
+
+### Android: ограничения (честно)
+
+| Тема | Статус |
+|------|--------|
+| Vault | SAF `content://` tree URI; удаление **без** корзины |
+| Whisper | Включён (`whisper_ggml`); модель **не** в APK (~466 МБ small при первом use). На слабых телефонах — `base`. APK тяжелее из‑за native libs |
+| Ollama на телефоне | Обычно нет — ходите на PC по LAN/Tailscale или в облако |
+| Подпись | Debug keystore (sideload); не для Play Store |
+| UI | Три вкладки вместо desktop-тройной панели |
+
+---
+
+## Установка через установщик Windows (рекомендуется)
 
 Обычному пользователю **не нужно** ставить Flutter и каждый раз собирать проект. Сборка делается в CI (или один раз у разработчика); вы только скачиваете и запускаете новый setup.
 
@@ -140,7 +159,7 @@ ollama pull qwen2.5:7b
 2. Текст попадёт в поле ввода; над ним — полоска **проверки**: жёлтым подчёркнуты слова с низкой эвристической уверенностью.
 3. Размер модели выбирается в **Настройки** (default **`small`**). Старые установки без сохранённого размера мигрируют с hardcoded `base` → `small`.
 4. Запись: WAV **16 kHz mono**, лёгкий trim тишины по краям.
-5. **Android:** кнопка микрофона скрыта в MVP.
+5. **Android:** микрофон включён (тот же whisper_ggml). Модель не в APK — скачивается при первом использовании. На слабых устройствах выберите `base`.
 
 ### Размеры модели (первый download)
 
