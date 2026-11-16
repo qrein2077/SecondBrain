@@ -126,7 +126,7 @@ Vault по-прежнему local-first; в облако уходит текст
 ### Gemini (Google AI Studio) — опционально
 
 1. [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
-2. Модели: `gemini-2.5-flash` (default), `gemini-2.5-pro`, …
+2. Модели: `gemini-3.8-flash` (default; без префикса `models/`), `gemini-2.5-pro` (если ещё доступна вашему ключу), …
 3. **Важно:** Gemini AI Studio **может быть недоступен в вашем регионе** (в т.ч. РФ). Если запросы падают с region/permission ошибками — переключитесь на **Groq** или **OpenRouter**.
 
 Endpoint: `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`.
@@ -348,7 +348,7 @@ flutter test
 2. **Путь к папке vault** → **Обзор…** (корень Obsidian vault; Remotely Save не трогаем).
 3. **Режим LLM:** Локально / Облако / Авто (default — Локально).
 4. **Ollama:** URL `http://127.0.0.1:11434`, модель `qwen2.5:7b`.
-5. **(Опц.) Gemini:** API-ключ + модель (`gemini-2.5-flash` и т.д.).
+5. **(Опц.) Gemini:** API-ключ + модель (`gemini-3.8-flash` и т.д.).
 6. System prompt при желании → **Сохранить**.
 
 Дальше: список `.md` / редактор слева; чат справа (индикатор Ollama/Gemini).

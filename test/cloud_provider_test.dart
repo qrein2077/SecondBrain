@@ -14,6 +14,7 @@ void main() {
     expect(s.cloudProvider, CloudProvider.groq);
     expect(s.groqModel, 'llama-3.1-8b-instant');
     expect(s.openRouterModel, contains(':free'));
-    expect(s.cloudModelFor(CloudProvider.gemini), 'gemini-2.5-flash');
+    expect(s.cloudModelFor(CloudProvider.gemini), 'gemini-3.8-flash');
+    expect(AppSettings.legacyDefaultGeminiModel, 'gemini-2.5-flash');
   });
 }

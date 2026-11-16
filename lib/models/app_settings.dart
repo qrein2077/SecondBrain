@@ -35,7 +35,11 @@ class AppSettings {
 
   final String systemPrompt;
 
-  static const defaultGeminiModel = 'gemini-2.5-flash';
+  /// OpenAI-compat model id (no `models/` prefix).
+  static const defaultGeminiModel = 'gemini-3.8-flash';
+
+  /// Previous shipped Gemini default — migrate AppData when still this value.
+  static const legacyDefaultGeminiModel = 'gemini-2.5-flash';
   static const defaultGroqModel = 'llama-3.1-8b-instant';
   static const defaultOpenRouterModel =
       'meta-llama/llama-3.1-8b-instruct:free';

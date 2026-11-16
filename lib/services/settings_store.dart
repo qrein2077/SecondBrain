@@ -90,13 +90,21 @@ class SettingsStore extends ChangeNotifier {
       );
     }
 
+    var geminiModel =
+        prefs.getString(_kGeminiModel) ?? AppSettings.defaultGeminiModel;
+    // Migrate retired AI Studio default for new users / stored old default only.
+    if (geminiModel == AppSettings.legacyDefaultGeminiModel ||
+        geminiModel == 'models/${AppSettings.legacyDefaultGeminiModel}') {
+      geminiModel = AppSettings.defaultGeminiModel;
+      await prefs.setString(_kGeminiModel, geminiModel);
+    }
+
     _settings = AppSettings(
       vaultPath: prefs.getString(_kVaultPath) ?? '',
       ollamaBaseUrl:
           prefs.getString(_kOllamaBaseUrl) ?? 'http://127.0.0.1:11434',
       modelName: prefs.getString(_kModelName) ?? 'qwen2.5:7b',
-      geminiModel:
-          prefs.getString(_kGeminiModel) ?? AppSettings.defaultGeminiModel,
+      geminiModel: geminiModel,
       groqModel: prefs.getString(_kGroqModel) ?? AppSettings.defaultGroqModel,
       openRouterModel: prefs.getString(_kOpenRouterModel) ??
           AppSettings.defaultOpenRouterModel,
