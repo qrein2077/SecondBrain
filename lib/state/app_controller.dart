@@ -195,14 +195,36 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setQaOnly(bool value) async {
+    if (settings.qaOnly == value) return;
+    if (value) {
+      // Drop any leftover draft UI when switching to Q&A-only.
+      pendingDraft = null;
+    }
+    await saveSettings(settings.copyWith(qaOnly: value));
+  }
+
   String buildChatSystemPrompt() {
     final buf = StringBuffer(settings.systemPrompt.trim());
+    if (settings.qaOnly) {
+      buf.writeln();
+      buf.writeln();
+      buf.writeln(AppSettings.qaOnlyAddonPrompt.trim());
+    }
     buf.writeln();
     buf.writeln();
     buf.writeln('## Контекст vault (приложение, не пользователь)');
-    buf.writeln(
-      'Работай со ВСЕМ vault. Не ограничивайся одной заметкой.',
-    );
+    if (settings.qaOnly) {
+      buf.writeln(
+        'Режим только ответов: используй список файлов лишь как справку для Q&A, '
+        'не предлагай запись.',
+      );
+    } else {
+      buf.writeln(
+        'Работай со ВСЕМ vault. Не ограничивайся одной заметкой. '
+        'Сначала уточняй, потом предлагай пакет заметок.',
+      );
+    }
     if (selectedPath != null && selectedPath!.isNotEmpty) {
       buf.writeln(
         'В редакторе сейчас открыт (только справка): `$selectedPath`',
@@ -213,9 +235,17 @@ class AppController extends ChangeNotifier {
     final files = markdownFiles;
     buf.writeln('Файлов .md в vault: ${files.length}');
     if (files.isEmpty) {
-      buf.writeln('(список пуст — можно предложить первые заметки)');
+      buf.writeln(
+        settings.qaOnly
+            ? '(список пуст)'
+            : '(список пуст — после уточнений можно предложить первые заметки)',
+      );
     } else {
-      buf.writeln('Существующие пути (для [[wiki-links]] и update):');
+      buf.writeln(
+        settings.qaOnly
+            ? 'Существующие пути (справочно):'
+            : 'Существующие пути (для [[wiki-links]] и update):',
+      );
       final limit = 250;
       for (final f in files.take(limit)) {
         buf.writeln('- $f');
@@ -325,7 +355,10 @@ class AppController extends ChangeNotifier {
             .toList(),
       );
       lastBackend = result.backend;
-      final parsed = AgentParser.parse(result.content);
+      final parsed = AgentParser.parse(
+        result.content,
+        allowDrafts: !settings.qaOnly,
+      );
       chat.add(
         ChatMessage(
           role: ChatRole.assistant,
@@ -336,10 +369,14 @@ class AppController extends ChangeNotifier {
       chat.add(
         ChatMessage(
           role: ChatRole.system,
-          content: 'Ответ через ${result.backend.label}',
+          content: settings.qaOnly
+              ? 'Ответ через ${result.backend.label} · только ответы'
+              : 'Ответ через ${result.backend.label}',
         ),
       );
-      if (parsed.draft != null && parsed.draft!.isNotEmpty) {
+      if (!settings.qaOnly &&
+          parsed.draft != null &&
+          parsed.draft!.isNotEmpty) {
         pendingDraft = parsed.draft;
       }
       if (result.backend == LlmBackend.ollama) {

@@ -9,6 +9,10 @@ void main() {
       isTrue,
     );
     expect(
+      AppSettings.isShippedDefaultPrompt(AppSettings.legacyDefaultSystemPromptV2),
+      isTrue,
+    );
+    expect(
       AppSettings.isShippedDefaultPrompt(AppSettings.defaultSystemPrompt),
       isTrue,
     );

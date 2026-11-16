@@ -4,6 +4,7 @@ import '../models/chat_message.dart';
 import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
 import '../screens/draft_preview_screen.dart';
+import '../services/whisper_stt_service.dart';
 import '../state/app_controller.dart';
 
 class ChatPanel extends StatefulWidget {
@@ -18,6 +19,10 @@ class ChatPanel extends StatefulWidget {
 class _ChatPanelState extends State<ChatPanel> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  final _stt = WhisperSttService();
+  bool _recording = false;
+  bool _transcribing = false;
+  String? _sttError;
 
   AppController get c => widget.controller;
 
@@ -25,6 +30,7 @@ class _ChatPanelState extends State<ChatPanel> {
   void dispose() {
     _input.dispose();
     _scroll.dispose();
+    _stt.dispose();
     super.dispose();
   }
 
@@ -40,7 +46,7 @@ class _ChatPanelState extends State<ChatPanel> {
         curve: Curves.easeOut,
       );
     }
-    if (c.pendingDraft != null && mounted) {
+    if (!c.settings.qaOnly && c.pendingDraft != null && mounted) {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => DraftPreviewScreen(
@@ -49,6 +55,49 @@ class _ChatPanelState extends State<ChatPanel> {
           ),
         ),
       );
+    }
+  }
+
+  Future<void> _toggleMic() async {
+    if (!WhisperSttService.isSupported) return;
+    setState(() => _sttError = null);
+    try {
+      if (_recording) {
+        setState(() {
+          _recording = false;
+          _transcribing = true;
+        });
+        final text = await _stt.stopAndTranscribe(lang: 'ru');
+        if (!mounted) return;
+        if (text.isNotEmpty) {
+          final cur = _input.text;
+          _input.text = cur.trim().isEmpty ? text : '$cur $text';
+          _input.selection = TextSelection.collapsed(offset: _input.text.length);
+        } else {
+          setState(() => _sttError = 'Пустая расшифровка — попробуйте ещё раз.');
+        }
+      } else {
+        setState(() => _transcribing = true);
+        // Warm model on first use (download ggml-base.bin once).
+        await _stt.ensureModel();
+        await _stt.startRecording();
+        if (!mounted) return;
+        setState(() {
+          _recording = true;
+          _transcribing = false;
+        });
+        return;
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _recording = false;
+          _sttError = e.toString();
+        });
+        await _stt.cancelRecording();
+      }
+    } finally {
+      if (mounted) setState(() => _transcribing = false);
     }
   }
 
@@ -91,8 +140,25 @@ class _ChatPanelState extends State<ChatPanel> {
     return parts.join(' · ');
   }
 
+  String _emptyHint() {
+    if (c.settings.qaOnly) {
+      return 'Режим «Только ответы»: задайте вопрос — агент не предложит '
+          'запись в vault.\n'
+          '${WhisperSttService.isSupported ? 'Микрофон: локальный Whisper (base).\n' : ''}'
+          'Для правок заметок переключите на «Может править vault».';
+    }
+    return 'Напишите идею или вопрос.\n'
+        'В режиме правок агент сначала уточнит детали, затем предложит '
+        'несколько связанных .md с [[wiki-links]].\n'
+        'Запись в vault — только после «Утвердить все».\n'
+        '${WhisperSttService.isSupported ? 'Микрофон → Whisper → текст в поле ввода.' : ''}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final showMic = WhisperSttService.isSupported;
+    final micBusy = _transcribing || c.chatBusy;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -146,7 +212,31 @@ class _ChatPanelState extends State<ChatPanel> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
-        if (c.pendingDraft != null)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment<bool>(
+                value: true,
+                label: Text('Только ответы'),
+                icon: Icon(Icons.chat_bubble_outline, size: 16),
+              ),
+              ButtonSegment<bool>(
+                value: false,
+                label: Text('Может править vault'),
+                icon: Icon(Icons.edit_note, size: 16),
+              ),
+            ],
+            selected: {c.settings.qaOnly},
+            onSelectionChanged: c.chatBusy
+                ? null
+                : (set) {
+                    final v = set.first;
+                    c.setQaOnly(v);
+                  },
+          ),
+        ),
+        if (!c.settings.qaOnly && c.pendingDraft != null)
           Card(
             margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             color: Theme.of(context).colorScheme.secondaryContainer,
@@ -186,15 +276,11 @@ class _ChatPanelState extends State<ChatPanel> {
           ),
         Expanded(
           child: c.chat.isEmpty
-              ? const Center(
+              ? Center(
                   child: Padding(
-                    padding: EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(16),
                     child: Text(
-                      'Напишите идею или вопрос.\n'
-                      'Агент работает со ВСЕМ vault и может предложить '
-                      'несколько связанных .md с [[wiki-links]].\n'
-                      'Запись в vault — только после «Утвердить все».\n'
-                      'Голосовой ввод (Whisper) пока не реализован.',
+                      _emptyHint(),
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -205,6 +291,9 @@ class _ChatPanelState extends State<ChatPanel> {
                   itemCount: c.chat.length,
                   itemBuilder: (context, index) {
                     final m = c.chat[index];
+                    final showDraft = !c.settings.qaOnly &&
+                        m.draftBundle != null &&
+                        m.draftBundle!.isNotEmpty;
                     return Align(
                       alignment: m.role == ChatRole.user
                           ? Alignment.centerRight
@@ -226,8 +315,7 @@ class _ChatPanelState extends State<ChatPanel> {
                             ),
                             const SizedBox(height: 4),
                             SelectableText(m.content),
-                            if (m.draftBundle != null &&
-                                m.draftBundle!.isNotEmpty) ...[
+                            if (showDraft) ...[
                               const SizedBox(height: 8),
                               OutlinedButton.icon(
                                 onPressed: () {
@@ -254,31 +342,73 @@ class _ChatPanelState extends State<ChatPanel> {
                   },
                 ),
         ),
+        if (_sttError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              _sttError!,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        if (_recording)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              'Идёт запись… Нажмите микрофон ещё раз, чтобы расшифровать.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
         const Divider(height: 1),
         Padding(
           padding: const EdgeInsets.all(8),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              if (showMic) ...[
+                IconButton.filledTonal(
+                  tooltip: _recording
+                      ? 'Стоп и расшифровать (Whisper)'
+                      : 'Голос → Whisper → поле ввода',
+                  onPressed: micBusy ? null : _toggleMic,
+                  style: IconButton.styleFrom(
+                    backgroundColor: _recording
+                        ? Theme.of(context).colorScheme.errorContainer
+                        : null,
+                  ),
+                  icon: _transcribing
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(_recording ? Icons.stop : Icons.mic),
+                ),
+                const SizedBox(width: 4),
+              ],
               Expanded(
                 child: TextField(
                   controller: _input,
                   minLines: 1,
                   maxLines: 5,
-                  enabled: !c.chatBusy,
-                  decoration: const InputDecoration(
-                    hintText: 'Идея для vault (можно несколько заметок)…',
-                    border: OutlineInputBorder(),
+                  enabled: !c.chatBusy && !_transcribing,
+                  decoration: InputDecoration(
+                    hintText: c.settings.qaOnly
+                        ? 'Вопрос (без записи в vault)…'
+                        : 'Идея для vault (сначала уточнения, потом черновик)…',
+                    border: const OutlineInputBorder(),
                     isDense: true,
                   ),
                   onSubmitted: (_) {
-                    if (!c.chatBusy) _send();
+                    if (!c.chatBusy && !_transcribing) _send();
                   },
                 ),
               ),
               const SizedBox(width: 8),
               FilledButton(
-                onPressed: c.chatBusy ? null : _send,
+                onPressed: (c.chatBusy || _transcribing) ? null : _send,
                 child: c.chatBusy
                     ? const SizedBox(
                         width: 18,

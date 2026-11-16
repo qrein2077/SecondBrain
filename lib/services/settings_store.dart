@@ -19,6 +19,7 @@ class SettingsStore extends ChangeNotifier {
   static const _kOpenRouterModel = 'openRouterModel';
   static const _kLlmMode = 'llmMode';
   static const _kCloudProvider = 'cloudProvider';
+  static const _kQaOnly = 'qaOnly';
   static const _kSystemPrompt = 'systemPrompt';
   static const _kPromptVersion = 'systemPromptVersion';
 
@@ -119,6 +120,7 @@ class SettingsStore extends ChangeNotifier {
       llmMode: LlmModeX.fromStorage(prefs.getString(_kLlmMode)),
       cloudProvider:
           CloudProviderX.fromStorage(prefs.getString(_kCloudProvider)),
+      qaOnly: prefs.getBool(_kQaOnly) ?? false,
       systemPrompt: prompt,
     );
 
@@ -164,6 +166,7 @@ class SettingsStore extends ChangeNotifier {
     await prefs.setString(_kOpenRouterModel, next.openRouterModel);
     await prefs.setString(_kLlmMode, next.llmMode.storageValue);
     await prefs.setString(_kCloudProvider, next.cloudProvider.storageValue);
+    await prefs.setBool(_kQaOnly, next.qaOnly);
     await prefs.setString(_kSystemPrompt, next.systemPrompt);
     await prefs.setInt(_kPromptVersion, AppSettings.currentPromptVersion);
 

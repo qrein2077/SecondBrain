@@ -1,29 +1,48 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:secondbrain/models/app_settings.dart';
 import 'package:secondbrain/services/agent_parser.dart';
 
 void main() {
-  test('parses propose notes block', () {
-    const raw = '''
-Вот структура.
-
+  const sample = '''
+План готов.
 <<<PROPOSE_NOTES>>>
-[
-  {"path": "Ideas/foo.md", "op": "create", "content": "# Foo\\n\\nSee [[bar]]"},
-  {"path": "Ideas/bar.md", "op": "create", "content": "# Bar"}
-]
+[{"path":"a.md","op":"create","content":"# A"}]
 <<<END_PROPOSE_NOTES>>>
 ''';
-    final parsed = AgentParser.parse(raw);
-    expect(parsed.displayText.contains('Вот структура'), isTrue);
-    expect(parsed.draft, isNotNull);
-    expect(parsed.draft!.files, hasLength(2));
-    expect(parsed.draft!.files.first.path, 'Ideas/foo.md');
-    expect(parsed.draft!.files.first.content.contains('[[bar]]'), isTrue);
+
+  test('parse allows drafts by default', () {
+    final r = AgentParser.parse(sample);
+    expect(r.draft, isNotNull);
+    expect(r.draft!.files, hasLength(1));
+    expect(r.displayText, contains('План готов'));
+    expect(r.displayText, isNot(contains('PROPOSE_NOTES')));
   });
 
-  test('no block returns plain text', () {
-    final parsed = AgentParser.parse('Просто ответ');
-    expect(parsed.displayText, 'Просто ответ');
-    expect(parsed.draft, isNull);
+  test('parse strips drafts in Q&A-only', () {
+    final r = AgentParser.parse(sample, allowDrafts: false);
+    expect(r.draft, isNull);
+    expect(r.displayText, contains('План готов'));
+    expect(r.displayText, isNot(contains('PROPOSE_NOTES')));
+  });
+
+  test('shipped prompt migration includes v2 and clarifying v3', () {
+    expect(AppSettings.currentPromptVersion, 3);
+    expect(
+      AppSettings.isShippedDefaultPrompt(AppSettings.legacyDefaultSystemPromptV2),
+      isTrue,
+    );
+    expect(
+      AppSettings.isShippedDefaultPrompt(AppSettings.defaultSystemPrompt),
+      isTrue,
+    );
+    expect(
+      AppSettings.defaultSystemPrompt,
+      contains('УТОЧНЯЮЩИЕ ВОПРОСЫ'),
+    );
+    expect(AppSettings.qaOnlyAddonPrompt, contains('ТОЛЬКО ОТВЕТЫ'));
+  });
+
+  test('qaOnly defaults false', () {
+    expect(const AppSettings().qaOnly, isFalse);
   });
 }

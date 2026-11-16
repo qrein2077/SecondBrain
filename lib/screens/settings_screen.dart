@@ -28,6 +28,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _promptCtrl;
   late LlmMode _llmMode;
   late CloudProvider _cloudProvider;
+  late bool _qaOnly;
   bool _saving = false;
   bool _obscureGemini = true;
   bool _obscureGroq = true;
@@ -52,6 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _promptCtrl = TextEditingController(text: s.systemPrompt);
     _llmMode = s.llmMode;
     _cloudProvider = s.cloudProvider;
+    _qaOnly = s.qaOnly;
   }
 
   @override
@@ -107,6 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               : _openRouterModelCtrl.text.trim(),
           llmMode: _llmMode,
           cloudProvider: _cloudProvider,
+          qaOnly: _qaOnly,
           systemPrompt: _promptCtrl.text.trim().isEmpty
               ? AppSettings.defaultSystemPrompt
               : _promptCtrl.text,
@@ -264,6 +267,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (p) {
               if (p != null) setState(() => _cloudProvider = p);
             },
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Режим агента',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              _qaOnly ? 'Только ответы' : 'Может править vault',
+            ),
+            subtitle: Text(
+              _qaOnly
+                  ? 'Без PROPOSE_NOTES и без панели черновиков.'
+                  : 'Сначала уточняющие вопросы, затем пакет заметок → Утвердить.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            value: _qaOnly,
+            onChanged: (v) => setState(() => _qaOnly = v),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Голосовой ввод (Windows): кнопка микрофона в чате → локальный '
+            'Whisper (модель base, ggml). При первом использовании модель '
+            'скачается (~140 МБ). Android: пока скрыто.',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 24),
           const Text(

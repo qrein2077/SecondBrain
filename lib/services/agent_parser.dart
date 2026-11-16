@@ -10,10 +10,22 @@ class AgentParser {
   );
 
   /// Returns display text (block stripped) and optional draft bundle.
-  static ParsedAgentReply parse(String raw) {
+  /// When [allowDrafts] is false (Q&A-only), any PROPOSE_NOTES block is stripped
+  /// and never surfaced as a draft.
+  static ParsedAgentReply parse(String raw, {bool allowDrafts = true}) {
     final match = _blockRe.firstMatch(raw);
     if (match == null) {
       return ParsedAgentReply(displayText: raw.trim(), draft: null);
+    }
+
+    if (!allowDrafts) {
+      final display = raw.replaceFirst(_blockRe, '').trim();
+      return ParsedAgentReply(
+        displayText: display.isEmpty
+            ? '(Блок предложений заметок отключён в режиме «Только ответы».)'
+            : display,
+        draft: null,
+      );
     }
 
     final jsonPart = match.group(1)!.trim();
