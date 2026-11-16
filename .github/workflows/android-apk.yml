@@ -40,6 +40,18 @@ jobs:
       - name: Enable Android
         run: flutter config --enable-android
 
+      # whisper_ggml requires NDK 29; accept licenses non-interactively.
+      - name: Install Android NDK 29
+        env:
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
+          echo "ANDROID_SDK=$SDK"
+          yes | sdkmanager --sdk_root="$SDK" --licenses >/tmp/android-licenses.txt || true
+          sdkmanager --sdk_root="$SDK" "ndk;29.0.13113456"
+          test -d "$SDK/ndk/29.0.13113456"
+
       - name: Flutter pub get
         run: flutter pub get
 
