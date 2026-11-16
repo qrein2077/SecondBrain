@@ -1,1 +1,540 @@
 # SecondBrain
+
+Local-first AI companion for an Obsidian vault (Windows + Android).  
+Default LLM is **local Ollama (Qwen2.5)**; optional **Google Gemini** (AI Studio) via cloud / auto modes.  
+The app **never writes** to the vault until you **Approve** a draft preview. Remotely Save is left alone.
+
+**English (short):** Windows setup from [Windows Actions](https://github.com/qrein2077/SecondBrain/actions/workflows/windows-installer.yml); Android APK from [Android Actions](https://github.com/qrein2077/SecondBrain/actions/workflows/android-apk.yml) (`SecondBrain-Android.apk`). Ollama + `qwen2.5:7b` (or cloud Groq/OpenRouter/Gemini).
+
+---
+
+## Возможности (MVP)
+
+- Выбор локальной папки Obsidian vault
+- Список `.md`, редактор Markdown + превью, ручное сохранение
+- Один универсальный агент (редактируемый system prompt)
+- LLM: **Ollama** по умолчанию (`qwen2.5:7b`) + облако **Groq / OpenRouter / Gemini** (режимы local / cloud / auto)
+- Режим **«Только ответы»** / **«Может править vault»** (переключатель в чате)
+- **RAG-lite:** ответы grounded по выдержкам `.md` (keyword/TF-IDF), чипы «Источники»
+- В режиме правок: агент **сначала уточняет**, затем предлагает пакет `.md` (`create` / `update` / `delete`) → **Утвердить все / Отклонить все** (+ диалог для удалений)
+- **Голосовой ввод (Windows + Android):** локальный Whisper (`whisper_ggml`, default **`small`**, язык **`ru`**); выбор base/small/medium; подсветка низкой уверенности (эвристика). Модель качается отдельно от APK.
+- **Сессии чата**, wiki-links, статус LLM, пресеты агента, проверка обновлений
+- Базовые русские подписи в UI
+- **Windows** установщик + **Android APK** (GitHub Actions)
+
+**Пока не входит:** встроенный Tailscale UI, vector RAG, мульти-агенты, подпись Play Store.
+
+---
+
+## Android: установка APK
+
+1. Скачайте артефакт **`SecondBrain-Android`** / файл `SecondBrain-Android.apk` из [Android workflow](https://github.com/qrein2077/SecondBrain/actions/workflows/android-apk.yml) (успешный run → Artifacts).
+2. На телефоне разрешите установку из неизвестных источников для браузера/файлового менеджера.
+3. Установите APK (debug-подпись, не Play Store).
+4. Откройте **Настройки → Vault → Обзор** и выберите папку Obsidian через **SAF** (системный выбор папки; разрешение сохраняется).
+5. **LLM:**
+   - **Предпочтительно:** Ollama на ПК — в Настройках укажите URL вида `http://100.x.y.z:11434` (Tailscale) или LAN IP. Cleartext HTTP разрешён в манифесте.
+   - Или режим **Облако**: Groq / OpenRouter / Gemini + API-ключ.
+6. Нижняя навигация: **Vault / Заметка / Чат** (те же режимы Q&A, RAG, сессии, wiki, пресеты, что на Windows).
+
+### Android: ограничения (честно)
+
+| Тема | Статус |
+|------|--------|
+| Vault | SAF `content://` tree URI; удаление **без** корзины |
+| Whisper | Включён (`whisper_ggml`); модель **не** в APK (~466 МБ small при первом use). На слабых телефонах — `base`. APK тяжелее из‑за native libs |
+| Ollama на телефоне | Обычно нет — ходите на PC по LAN/Tailscale или в облако |
+| Подпись | Debug keystore (sideload); не для Play Store |
+| UI | Три вкладки вместо desktop-тройной панели |
+
+---
+
+## Установка через установщик Windows (рекомендуется)
+
+Обычному пользователю **не нужно** ставить Flutter и каждый раз собирать проект. Сборка делается в CI (или один раз у разработчика); вы только скачиваете и запускаете новый setup.
+
+### Честно про обновления
+
+| Кто | Что делает |
+|-----|------------|
+| **Вы (день за днём)** | Скачиваете новый `SecondBrain-Setup-*.exe` → запускаете → приложение обновляется в Program Files (или выбранной папке). Flutter не нужен. |
+| **CI / разработчик** | На каждый push в PR/`main` GitHub Actions на Windows собирает Flutter Release + Inno Setup и кладёт артефакт. |
+
+### 1. LLM: Ollama (по умолчанию) и/или Gemini (опционально)
+
+Установщик SecondBrain **не** включает модели — только UI-клиент.
+
+**Рекомендуемый путь (локально):**
+
+1. Установите [Ollama для Windows](https://ollama.com)
+2. Скачайте модель:
+
+```bat
+ollama pull qwen2.5:7b
+```
+
+3. Проверьте: `http://127.0.0.1:11434` отвечает.
+
+**Опционально — облако** (Groq / OpenRouter / Gemini): см. [Облачные LLM](#облачные-llm-groq--openrouter--gemini). Из РФ чаще работают Groq и OpenRouter; Gemini может быть недоступен по региону. Без ключа достаточно режима «Локально (Ollama)».
+
+### 2. Скачать установщик из GitHub Actions
+
+1. Откройте workflow: [Windows installer](https://github.com/qrein2077/SecondBrain/actions/workflows/windows-installer.yml)
+2. Выберите **успешный** прогон (зелёная галочка) для нужной ветки / PR #1
+3. Внизу страницы прогона → **Artifacts** → **SecondBrain-Setup-Windows**
+4. Распакуйте zip артефакта → запустите `SecondBrain-Setup-1.0.0.exe` (версия из `pubspec.yaml`)
+
+Пока PR #1 не влит, берите прогон с ветки `cursor/windows-vault-chat-shell-77ba` / pull request. После merge — прогоны с `main`.
+
+> Артефакты Actions хранятся ограниченное время (сейчас ~30 дней). Позже можно публиковать GitHub Releases с тем же `.exe`.
+
+### 3. Установка и обновление
+
+1. Запустите setup → при желании смените папку (по умолчанию под Program Files / user install).
+2. Язык мастера: English / **Русский**.
+3. **Обновление:** скачайте новый setup и установите поверх (тот же `AppId`). Старую версию вручную сносить не обязательно.
+4. **Настройки не сбрасываются** при переустановке: vault path, URL Ollama, модель и system prompt лежат в  
+   `%APPDATA%\com.qrein.secondbrain\SecondBrain\`  
+   (Flutter `shared_preferences`). Деинсталлятор **не** удаляет AppData.
+
+### 4. Первый запуск после установки
+
+1. Запустите **SecondBrain** из меню Пуск.
+2. **Настройки** (шестерёнка): папка vault → режим LLM (**Локально** по умолчанию) → Ollama URL `http://127.0.0.1:11434` → модель `qwen2.5:7b` → при необходимости облачный ключ → **Сохранить**.
+3. В чате выберите режим:
+   - **Только ответы** — Q&A без черновиков vault;
+   - **Может править vault** — уточнения → пакет заметок → **Утвердить все**.
+4. (Опц.) Микрофон в чате — локальный Whisper (см. ниже).
+
+---
+
+## Режимы агента: только ответы vs правки vault
+
+| Режим | Поведение |
+|-------|-----------|
+| **Только ответы** | Агент отвечает на вопросы **по выдержкам из vault** (RAG-lite). Блок `PROPOSE_NOTES` запрещён (включая delete). Панель черновиков не показывается. |
+| **Может править vault** | Вопросы о знаниях grounded; для правок агент уточняет, затем предлагает пакет `.md` (`create` / `update` / `delete`) после согласия. Мутации — только после **Утвердить все** (+ диалог для удалений). |
+
+### Удаление заметок (`op: "delete"`)
+
+Агент может предложить удалить `.md` внутри vault в том же блоке `<<<PROPOSE_NOTES>>>`:
+
+```json
+{"path": "Тема/устарело.md", "op": "delete", "content": ""}
+```
+
+- В превью удаления помечены красным **«удалить»**.
+- **Утвердить все** при наличии удалений сначала показывает диалог со списком путей.
+- На Windows файл по возможности отправляется в **Корзину**; иначе — удаление с диска.
+- Без Approve / без подтверждения диалога ничего не удаляется.
+- В режиме **«Только ответы»** предложения delete отбрасываются вместе с любыми мутациями.
+
+Переключатель — в шапке чата (и в Настройках). Не путать с режимом LLM (Локально / Облако / Авто).
+
+### Сессии чата, wiki-links, пресеты, обновления
+
+| Возможность | Как пользоваться |
+|-------------|------------------|
+| **Сессии** | В панели чата выберите сессию / «+» новый / переименовать / удалить. История пишется в AppData `chat_sessions/`. |
+| **Wiki-links** | В чате и превью редактора кликните `[[имя]]` — откроется заметка. Наведите курсор — короткий preview. |
+| **Статус** | В шапке: зелёный/красный кружок + «Локально · Ollama» / «Облако · Groq» и модель. |
+| **Пресеты** | Настройки → «Пресеты агента»: переключить / сохранить как / обновить. Default — уточняющий clarifying. |
+| **Обновления** | Шапка или Настройки → «Проверить обновления». Сначала Releases; если нет — ссылка на Actions (`SecondBrain-Setup-Windows`). |
+
+### RAG-lite (ответы из заметок)
+
+Перед каждым запросом к LLM приложение ищет релевантные `.md` в выбранном vault (ключевые слова / TF-IDF-lite по пути и тексту, без тяжёлой vector DB) и вставляет top-N выдержек в контекст.
+
+- Пример: «что я уже знаю по физике» → краткое резюме по найденным заметкам + чипы **Источники**.
+- Если совпадений нет — агент должен честно сказать, что в vault ничего не нашёл (а не просить открыть файлы вручную).
+- Работает с Ollama и облачными провайдерами одинаково.
+
+---
+
+## Голосовой ввод (Whisper, Windows)
+
+Локальный STT на базе **whisper.cpp** (пакет `whisper_ggml`), без облака. Язык принудительно **`ru`**.
+
+1. В чате нажмите **микрофон** → говорите → нажмите ещё раз (стоп).
+2. Текст попадёт в поле ввода; над ним — полоска **проверки**: жёлтым подчёркнуты слова с низкой эвристической уверенностью.
+3. Размер модели выбирается в **Настройки** (default **`small`**). Старые установки без сохранённого размера мигрируют с hardcoded `base` → `small`.
+4. Запись: WAV **16 kHz mono**, лёгкий trim тишины по краям.
+5. **Android:** микрофон включён (тот же whisper_ggml). Модель не в APK — скачивается при первом использовании. На слабых устройствах выберите `base`.
+
+### Размеры модели (первый download)
+
+| Размер | Файл (примерно) | Когда выбирать |
+|--------|-----------------|----------------|
+| `base` | ~142 МБ | слабый ПК, можно чуть хуже RU |
+| **`small` (default)** | **~466 МБ** | баланс качества/нагрузки |
+| `medium` | ~1.5 ГБ | точнее, заметно тяжелее CPU/RAM — не default |
+
+Модель качается один раз в кэш `whisper_ggml` / support dir при первом использовании выбранного размера.
+
+### Уверенность (лимиты)
+
+`whisper_ggml` **не отдаёт** token/segment probabilities. Подсветка строится по **эвристикам**: длительность слова vs число букв, повторы, `U+FFFD`, странные токены. Это не калиброванная confidence — проверяйте жёлтые слова глазами.
+
+Если микрофон не работает: проверьте разрешение Windows на доступ к микрофону для SecondBrain (Параметры → Конфиденциальность → Микрофон).
+
+### Сборка установщика у себя (опционально)
+
+Нужны Flutter + VS 2022 Desktop C++ + [Inno Setup 6](https://jrsoftware.org/isinfo.php) (или `choco install innosetup`).
+
+```powershell
+.\scripts\windows\build_installer.ps1
+```
+
+Результат: `dist\SecondBrain-Setup-<version>.exe`  
+Скрипт: [`scripts/windows/build_installer.ps1`](scripts/windows/build_installer.ps1) · ISS: [`installer/windows/SecondBrain.iss`](installer/windows/SecondBrain.iss) · CI: [`.github/workflows/windows-installer.yml`](.github/workflows/windows-installer.yml)
+
+---
+
+## Облачные LLM (Groq / OpenRouter / Gemini)
+
+Vault по-прежнему local-first; в облако уходит текст чата (промпт + история). Черновики `.md` пишутся локально только после Approve. Ключи — в защищённом хранилище ОС (`flutter_secure_storage`), не в vault/git.
+
+**Режимы:** Локально (Ollama, default) / Облако / Авто (Ollama → выбранный облачный провайдер).
+
+**Провайдер по умолчанию для облака:** Groq (часто доступен, когда Gemini AI Studio блокируется по региону).
+
+### Groq (рекомендуется из РФ)
+
+1. Зарегистрируйтесь на [console.groq.com](https://console.groq.com/) → API Keys.
+2. В SecondBrain: **Облачный провайдер = Groq**, вставьте ключ, модель (вручную):
+
+| Модель | Примечание |
+|--------|------------|
+| `openai/gpt-oss-20b` | **Default** — быстрый free/developer-tier |
+| `openai/gpt-oss-120b` | Крупнее / качественнее |
+| `qwen/qwen3.6-27b` | Альтернатива (если доступна в каталоге) |
+
+> Llama `llama-3.1-8b-instant` и `llama-3.3-70b-versatile` сняты с free/developer-tier (shutdown Aug 2026). Приложение мигрирует сохранённые значения на `openai/gpt-oss-20b`.
+
+3. Режим **Облако** или **Авто** → Сохранить. Endpoint: `https://api.groq.com/openai/v1/chat/completions`.
+
+### OpenRouter
+
+1. [openrouter.ai/keys](https://openrouter.ai/keys) → создайте ключ (для `:free` моделей карта часто не нужна).
+2. Провайдер **OpenRouter**, модель с суффиксом `:free`, например:
+
+| Модель | Примечание |
+|--------|------------|
+| `meta-llama/llama-3.1-8b-instruct:free` | **Default** |
+| `google/gemma-3-27b-it:free` | Альтернатива |
+| `qwen/qwen3-32b:free` | Если доступна в списке free |
+
+Список free-моделей меняется — смотрите [OpenRouter models](https://openrouter.ai/models?q=free). Endpoint: `https://openrouter.ai/api/v1/chat/completions`.
+
+### Gemini (Google AI Studio) — опционально
+
+1. [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+2. Модели: `gemini-3.8-flash` (default; без префикса `models/`), `gemini-2.5-pro` (если ещё доступна вашему ключу), …
+3. **Важно:** Gemini AI Studio **может быть недоступен в вашем регионе** (в т.ч. РФ). Если запросы падают с region/permission ошибками — переключитесь на **Groq** или **OpenRouter**.
+
+Endpoint: `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`.
+
+Multi-file `<<<PROPOSE_NOTES>>>` + Approve одинаковы для Ollama и всех облачных backends.
+
+---
+
+## Сборка из исходников (для разработчиков)
+
+Если хотите править код и запускать без установщика — ставьте toolchain ниже. Для простого использования достаточно раздела **«Установка через установщик»**.
+
+### 0. Что понадобится
+
+| Компонент | Зачем |
+|-----------|--------|
+| **Git** | Клонировать репозиторий |
+| **Flutter (stable)** | Сборка и запуск приложения |
+| **Visual Studio 2022** с workload **Desktop development with C++** | Компиляция Windows desktop |
+| **Ollama** | Локальный LLM по умолчанию |
+| **(опц.) ключи Groq / OpenRouter / Gemini** | Cloud / auto; из РФ чаще Groq/OpenRouter |
+| Модель **`qwen2.5:7b`** | Default chat (Qwen2.5 7B–8B Q4/Q5) |
+| Папка **Obsidian vault** | Локальная копия заметок (как у Remotely Save) |
+
+Железо (ориентир проекта): 32 GB RAM + RTX 5060 Ti; приложение держит concurrency = 1, чтобы не грузить ПК.
+
+---
+
+### 1. Установите Git
+
+1. Скачайте установщик: [https://git-scm.com/download/win](https://git-scm.com/download/win)
+2. Установите с настройками по умолчанию (достаточно).
+3. Проверьте в **PowerShell** или **cmd**:
+
+```bat
+git --version
+```
+
+Должна появиться версия Git.
+
+---
+
+### 2. Установите Flutter (канал stable)
+
+1. Откройте официальную инструкцию: [Install Flutter on Windows](https://docs.flutter.dev/get-started/install/windows/desktop)
+2. Скачайте **Flutter SDK (stable)** и распакуйте, например в `C:\src\flutter`  
+   (путь **без** пробелов и без необходимости прав администратора для каждой сборки — удобнее).
+3. Добавьте в **PATH** пользователя: `C:\src\flutter\bin` (свой путь).
+4. Закройте и заново откройте терминал, затем:
+
+```bat
+flutter --version
+```
+
+Убедитесь, что канал **stable**. При необходимости:
+
+```bat
+flutter channel stable
+flutter upgrade
+```
+
+---
+
+### 3. Visual Studio 2022 — Desktop development with C++
+
+Flutter для Windows требует toolchain Visual Studio (не только VS Code).
+
+1. Установите [Visual Studio 2022](https://visualstudio.microsoft.com/downloads/) (Community достаточно).
+2. В Visual Studio Installer отметьте workload:
+
+   **Desktop development with C++**
+
+3. В деталях workload обычно нужны (если не включились сами):
+
+   - MSVC v143 (или актуальный) toolset  
+   - Windows 10/11 SDK  
+   - CMake tools for Windows  
+
+4. Перезапустите терминал после установки.
+
+Документация Flutter: [Windows desktop requirements](https://docs.flutter.dev/platform-integration/windows/setup).
+
+---
+
+### 4. Проверка окружения — `flutter doctor`
+
+```bat
+flutter doctor
+flutter doctor -v
+```
+
+Ожидаемо для этого MVP:
+
+- **Flutter** — без критических ошибок  
+- **Visual Studio** — найден, с C++ desktop  
+- **Windows** / desktop — готов к разработке  
+- **Android toolchain** — можно игнорировать на первом этапе (Android в проекте есть, но фокус — Windows)  
+- **Chrome** / сеть — не обязательны для desktop
+
+Если `flutter doctor` ругается — см. раздел [Устранение неполадок](#устранение-неполадок).
+
+Включите desktop (если ещё не включён):
+
+```bat
+flutter config --enable-windows-desktop
+flutter devices
+```
+
+В списке устройств должен быть **Windows (desktop)**.
+
+---
+
+### 5. Установите Ollama и скачайте модель
+
+1. Скачайте Ollama для Windows: [https://ollama.com](https://ollama.com)  
+2. Установите и убедитесь, что служба/приложение запущено (иконка в трее или процесс `ollama`).
+3. В терминале:
+
+```bat
+ollama --version
+ollama pull qwen2.5:7b
+```
+
+Проверка, что API отвечает локально:
+
+```bat
+curl http://127.0.0.1:11434/api/tags
+```
+
+или откройте в браузере: `http://127.0.0.1:11434` — должен ответить Ollama.
+
+**По умолчанию** используется локальный Ollama. Gemini — **opt-in** (ключ в защищённом хранилище устройства, не в vault/git). Можно оставить только Ollama.
+
+Если тег `qwen2.5:7b` недоступен, подтяните ближайший Q4/Q5 вариант, например:
+
+```bat
+ollama pull qwen2.5:7b-instruct-q5_K_M
+```
+
+и укажите **точный** тег в настройках приложения.
+
+Чтобы не грузить ПК: не держите несколько больших моделей загруженными одновременно; в приложении уже очередь на **1** активную генерацию.
+
+---
+
+### 6. Получите код репозитория
+
+#### Сейчас (пока PR #1 не влит в `main`)
+
+Код MVP живёт в pull request: [https://github.com/qrein2077/SecondBrain/pull/1](https://github.com/qrein2077/SecondBrain/pull/1)
+
+**Вариант A — клон + checkout PR-ветки:**
+
+```bat
+git clone https://github.com/qrein2077/SecondBrain.git
+cd SecondBrain
+git fetch origin pull/1/head:pr-1
+git checkout pr-1
+```
+
+**Вариант B — уже клонировали `main`:**
+
+```bat
+cd SecondBrain
+git fetch origin pull/1/head:pr-1
+git checkout pr-1
+```
+
+**Вариант C — ветка агента напрямую:**
+
+```bat
+git clone -b cursor/windows-vault-chat-shell-77ba https://github.com/qrein2077/SecondBrain.git
+cd SecondBrain
+```
+
+#### После merge в `main`
+
+Упростится до обычного клона:
+
+```bat
+git clone https://github.com/qrein2077/SecondBrain.git
+cd SecondBrain
+```
+
+или, если репозиторий уже есть:
+
+```bat
+git checkout main
+git pull origin main
+```
+
+---
+
+### 7. Зависимости и запуск
+
+В каталоге проекта:
+
+```bat
+flutter pub get
+flutter run -d windows
+```
+
+Первая сборка Windows может занять несколько минут (CMake / MSVC). Повторные запуски быстрее.
+
+Альтернатива: открыть проект в IDE и выбрать устройство **Windows**, затем Run.
+
+Проверки без GUI:
+
+```bat
+flutter analyze
+flutter test
+```
+
+---
+
+### 8. Первый запуск — настройки
+
+1. В шапке приложения нажмите **шестерёнку** → **Настройки**.
+2. **Путь к папке vault** → **Обзор…** (корень Obsidian vault; Remotely Save не трогаем).
+3. **Режим LLM:** Локально / Облако / Авто (default — Локально).
+4. **Ollama:** URL `http://127.0.0.1:11434`, модель `qwen2.5:7b`.
+5. **(Опц.) Gemini:** API-ключ + модель (`gemini-3.8-flash` и т.д.).
+6. System prompt при желании → **Сохранить**.
+
+Дальше: список `.md` / редактор слева; чат справа (индикатор Ollama/Gemini).
+
+---
+
+### 9. Запись в vault только после Approve
+
+Агент **не** пишет файлы сам (ни через Ollama, ни через Gemini). Он предлагает пакет `.md` + `[[wiki-links]]`.
+
+1. Баннер/кнопка **Пакет N файл.**
+2. Превью: список путей + Markdown.
+3. **Отклонить все** — vault не меняется.  
+4. **Утвердить все** — пакетная запись (`temp` → rename) **только** внутрь vault.
+
+Ручное сохранение открытой заметки в редакторе — отдельное явное действие пользователя (**Сохранить**).
+
+---
+
+## Устранение неполадок
+
+### `flutter doctor` — Visual Studio / toolchain
+
+| Симптом | Что сделать |
+|---------|-------------|
+| Visual Studio not found / incomplete | Установите VS 2022 + workload **Desktop development with C++**, перезапустите терминал, снова `flutter doctor -v` |
+| Missing Windows SDK / MSVC | В Installer → Modify → отметьте Windows 10/11 SDK и MSVC C++ build tools |
+| `flutter devices` без Windows | `flutter config --enable-windows-desktop`, перелогиньтесь в терминал |
+| PATH / `flutter` не находится | Добавьте `...\flutter\bin` в PATH пользователя, новый терминал |
+
+Полезные ссылки: [Flutter Windows install](https://docs.flutter.dev/get-started/install/windows/desktop), [Windows setup](https://docs.flutter.dev/platform-integration/windows/setup).
+
+### Ollama: connection refused / offline в приложении
+
+1. Запущено ли Ollama (трей / службы Windows)?
+2. Проверьте: `curl http://127.0.0.1:11434/api/tags`
+3. В настройках URL должен быть именно `http://127.0.0.1:11434` (без лишнего слэша в конце — приложение обычно нормализует).
+4. Firewall: для localhost обычно не мешает; если меняли порт Ollama — укажите тот же порт в приложении.
+5. После старта Ollama нажмите в чате проверку связи (иконка сети).
+
+### Неверная модель / тег
+
+```bat
+ollama list
+```
+
+Тег в **Настройки → Модель** должен **точно** совпадать с именем из списка (например `qwen2.5:7b`).  
+Если pull другого варианта — обновите поле модели и сохраните настройки.
+
+Ошибка вроде «model not found» в чате = тег не скачан или опечатка.
+
+### Vault: пустой список / «нет .md»
+
+1. В настройках выбран **корень** vault (там, где лежат заметки и часто папка `.obsidian`), а не случайная подпапка без markdown.
+2. Файлы должны иметь расширение `.md`. Скрытые каталоги (`.obsidian` и т.п.) приложение пропускает намеренно.
+3. Нажмите **Обновить** в панели Vault.
+4. Права доступа: папка должна читаться вашим пользователем Windows.
+
+### Сборка `flutter run -d windows` падает
+
+- Дождитесь окончания первой генерации CMake; смотрите лог на MSVC / SDK.
+- Закройте антивирус на время первой сборки, если он блокирует `build\windows`.
+- `flutter clean` → `flutter pub get` → `flutter run -d windows`.
+
+### Установщик / настройки пропали
+
+- Настройки должны жить в `%APPDATA%\com.qrein.secondbrain\SecondBrain\` — переустановка setup **не** должна их стирать.
+- Если «всё с нуля» после смены пользователя Windows или очистки Roaming — заново укажите vault в Настройках.
+- Антивирус иногда блокирует свежий setup из Actions (неподписанный). Разрешите файл или «Разблокировать» в свойствах `.exe`.
+
+### После merge
+
+Когда [#1](https://github.com/qrein2077/SecondBrain/pull/1) вольют в `main`, больше не нужен `git fetch origin pull/1/head:pr-1` — достаточно `git clone` / `git pull` с `main` (см. выше). Установщик берите из Actions на `main`.
+
+---
+
+## Заметки для разработки
+
+- Репозиторий можно править на Linux, но **Windows Release + Inno Setup** собираются на **Windows** (локально или GitHub Actions `windows-latest`).
+- Установщик: `installer/windows/SecondBrain.iss`, скрипт `scripts/windows/build_installer.ps1`, workflow `.github/workflows/windows-installer.yml`.
+- Android-таргет включён (`android/`); полировка телефона и SAF — позже.
+- Формат предложения заметок агентом описан в system prompt (`<<<PROPOSE_NOTES>>>` … `<<<END_PROPOSE_NOTES>>>`).
+
+## Лицензия
+
+Личный проект, если не указано иное.

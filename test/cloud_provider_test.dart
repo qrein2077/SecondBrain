@@ -1,0 +1,25 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:secondbrain/models/app_settings.dart';
+import 'package:secondbrain/models/cloud_provider.dart';
+
+void main() {
+  test('CloudProvider storage', () {
+    expect(CloudProviderX.fromStorage('groq'), CloudProvider.groq);
+    expect(CloudProviderX.fromStorage('openRouter'), CloudProvider.openRouter);
+    expect(CloudProviderX.fromStorage(null), CloudProvider.gemini);
+  });
+
+  test('default cloud models', () {
+    const s = AppSettings();
+    expect(s.cloudProvider, CloudProvider.groq);
+    expect(s.groqModel, 'openai/gpt-oss-20b');
+    expect(s.openRouterModel, contains(':free'));
+    expect(s.cloudModelFor(CloudProvider.gemini), 'gemini-3.8-flash');
+    expect(AppSettings.legacyDefaultGeminiModel, 'gemini-2.5-flash');
+    expect(AppSettings.legacyDefaultGroqModel, 'llama-3.1-8b-instant');
+    expect(
+      AppSettings.legacyRetiredGroqModels,
+      contains('llama-3.3-70b-versatile'),
+    );
+  });
+}
