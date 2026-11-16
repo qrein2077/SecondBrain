@@ -4,7 +4,7 @@ Local-first AI companion for an Obsidian vault (Windows + Android).
 Default LLM is **local Ollama (Qwen2.5)**; optional **Google Gemini** (AI Studio) via cloud / auto modes.  
 The app **never writes** to the vault until you **Approve** a draft preview. Remotely Save is left alone.
 
-**English (short):** Download `SecondBrain-Setup-*.exe` from [Actions](https://github.com/qrein2077/SecondBrain/actions/workflows/windows-installer.yml) → install → Ollama + `qwen2.5:7b` (default). Optional: paste Gemini API key in Settings, pick model, switch mode to cloud/auto. Update = new setup.exe. Flutter-from-source is advanced (Russian below).
+**English (short):** Download `SecondBrain-Setup-*.exe` from [Actions](https://github.com/qrein2077/SecondBrain/actions/workflows/windows-installer.yml) → install → Ollama + `qwen2.5:7b` (default). Optional cloud: Groq / OpenRouter / Gemini (keys in secure storage; Gemini may be region-blocked — try Groq). Update = new setup.exe.
 
 ---
 
@@ -13,7 +13,7 @@ The app **never writes** to the vault until you **Approve** a draft preview. Rem
 - Выбор локальной папки Obsidian vault
 - Список `.md`, редактор Markdown + превью, ручное сохранение
 - Один универсальный агент (редактируемый system prompt)
-- LLM: **Ollama** по умолчанию (`qwen2.5:7b`) + опционально **Gemini** (режимы local / cloud / auto)
+- LLM: **Ollama** по умолчанию (`qwen2.5:7b`) + облако **Groq / OpenRouter / Gemini** (режимы local / cloud / auto)
 - Предложение создать/обновить одну или несколько связанных заметок (`[[wiki-links]]`) → превью → **Утвердить все / Отклонить все**
 - Базовые русские подписи в UI
 - Windows-установщик (Inno Setup) + сборка в GitHub Actions
@@ -48,7 +48,7 @@ ollama pull qwen2.5:7b
 
 3. Проверьте: `http://127.0.0.1:11434` отвечает.
 
-**Опционально — Google Gemini** (если хотите cloud / auto): см. [Gemini (Google AI Studio)](#gemini-google-ai-studio) ниже. Без ключа достаточно режима «Локально (Ollama)».
+**Опционально — облако** (Groq / OpenRouter / Gemini): см. [Облачные LLM](#облачные-llm-groq--openrouter--gemini). Из РФ чаще работают Groq и OpenRouter; Gemini может быть недоступен по региону. Без ключа достаточно режима «Локально (Ollama)».
 
 ### 2. Скачать установщик из GitHub Actions
 
@@ -89,34 +89,49 @@ ollama pull qwen2.5:7b
 
 ---
 
-## Gemini (Google AI Studio)
+## Облачные LLM (Groq / OpenRouter / Gemini)
 
-Опциональный облачный backend. Vault по-прежнему local-first; в облако уходит текст чата (промпт + история), не «весь диск». Черновики `.md` пишутся локально только после Approve.
+Vault по-прежнему local-first; в облако уходит текст чата (промпт + история). Черновики `.md` пишутся локально только после Approve. Ключи — в защищённом хранилище ОС (`flutter_secure_storage`), не в vault/git.
 
-### Как получить бесплатный API-ключ
+**Режимы:** Локально (Ollama, default) / Облако / Авто (Ollama → выбранный облачный провайдер).
 
-1. Откройте [Google AI Studio](https://aistudio.google.com/) и войдите в Google-аккаунт.
-2. **Get API key** / [API keys](https://aistudio.google.com/apikey) → создайте ключ.
-3. Скопируйте ключ (обычно `AIza…`). **Не коммитьте** в git и не кладите в vault.
+**Провайдер по умолчанию для облака:** Groq (часто доступен, когда Gemini AI Studio блокируется по региону).
 
-### Настройка в SecondBrain
+### Groq (рекомендуется из РФ)
 
-1. **Настройки** → блок **Облако — Google Gemini**
-2. Вставьте API-ключ (хранится в защищённом хранилище ОС через `flutter_secure_storage`).
-3. Укажите **модель вручную**:
+1. Зарегистрируйтесь на [console.groq.com](https://console.groq.com/) → API Keys.
+2. В SecondBrain: **Облачный провайдер = Groq**, вставьте ключ, модель (вручную):
 
-| Модель | Зачем |
-|--------|--------|
-| `gemini-2.5-flash` | **Default** — быстрый free-tier-ориентир |
-| `gemini-2.5-pro` | Качественнее, медленнее |
-| `gemini-3.8-flash` | Более новый flash (если доступен вашему ключу) |
+| Модель | Примечание |
+|--------|------------|
+| `llama-3.1-8b-instant` | **Default** — быстрый free-tier |
+| `llama-3.3-70b-versatile` | Качественнее |
+| `openai/gpt-oss-20b` | Если есть в вашем каталоге Groq |
 
-Имена — как в [OpenAI-compat docs](https://aistudio.google.com/docs/openai). При «model not found» смените тег.
+3. Режим **Облако** или **Авто** → Сохранить. Endpoint: `https://api.groq.com/openai/v1/chat/completions`.
 
-4. Режим LLM: **Локально** (default) / **Облако (Gemini)** / **Авто (Ollama → Gemini)**.
-5. **Сохранить** → в чате строка «Ответ через Ollama/Gemini» покажет backend.
+### OpenRouter
 
-Технически: `POST https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` + `Authorization: Bearer <key>`. Multi-file `<<<PROPOSE_NOTES>>>` + Approve одинаковы для обоих backends.
+1. [openrouter.ai/keys](https://openrouter.ai/keys) → создайте ключ (для `:free` моделей карта часто не нужна).
+2. Провайдер **OpenRouter**, модель с суффиксом `:free`, например:
+
+| Модель | Примечание |
+|--------|------------|
+| `meta-llama/llama-3.1-8b-instruct:free` | **Default** |
+| `google/gemma-3-27b-it:free` | Альтернатива |
+| `qwen/qwen3-32b:free` | Если доступна в списке free |
+
+Список free-моделей меняется — смотрите [OpenRouter models](https://openrouter.ai/models?q=free). Endpoint: `https://openrouter.ai/api/v1/chat/completions`.
+
+### Gemini (Google AI Studio) — опционально
+
+1. [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+2. Модели: `gemini-2.5-flash` (default), `gemini-2.5-pro`, …
+3. **Важно:** Gemini AI Studio **может быть недоступен в вашем регионе** (в т.ч. РФ). Если запросы падают с region/permission ошибками — переключитесь на **Groq** или **OpenRouter**.
+
+Endpoint: `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`.
+
+Multi-file `<<<PROPOSE_NOTES>>>` + Approve одинаковы для Ollama и всех облачных backends.
 
 ---
 
@@ -132,7 +147,7 @@ ollama pull qwen2.5:7b
 | **Flutter (stable)** | Сборка и запуск приложения |
 | **Visual Studio 2022** с workload **Desktop development with C++** | Компиляция Windows desktop |
 | **Ollama** | Локальный LLM по умолчанию |
-| **(опц.) ключ Gemini** | Cloud / auto режимы через Google AI Studio |
+| **(опц.) ключи Groq / OpenRouter / Gemini** | Cloud / auto; из РФ чаще Groq/OpenRouter |
 | Модель **`qwen2.5:7b`** | Default chat (Qwen2.5 7B–8B Q4/Q5) |
 | Папка **Obsidian vault** | Локальная копия заметок (как у Remotely Save) |
 

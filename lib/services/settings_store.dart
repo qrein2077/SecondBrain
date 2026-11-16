@@ -3,9 +3,10 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_settings.dart';
+import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
 
-/// Loads/persists [AppSettings]. Gemini API key lives in secure storage only.
+/// Loads/persists [AppSettings]. Cloud API keys live in secure storage only.
 class SettingsStore extends ChangeNotifier {
   SettingsStore({FlutterSecureStorage? secureStorage})
       : _secure = secureStorage ?? const FlutterSecureStorage();
@@ -14,24 +15,59 @@ class SettingsStore extends ChangeNotifier {
   static const _kOllamaBaseUrl = 'ollamaBaseUrl';
   static const _kModelName = 'modelName';
   static const _kGeminiModel = 'geminiModel';
+  static const _kGroqModel = 'groqModel';
+  static const _kOpenRouterModel = 'openRouterModel';
   static const _kLlmMode = 'llmMode';
+  static const _kCloudProvider = 'cloudProvider';
   static const _kSystemPrompt = 'systemPrompt';
   static const _kPromptVersion = 'systemPromptVersion';
+
   static const _kGeminiApiKey = 'gemini_api_key';
+  static const _kGroqApiKey = 'groq_api_key';
+  static const _kOpenRouterApiKey = 'openrouter_api_key';
 
   final FlutterSecureStorage _secure;
 
   AppSettings _settings = const AppSettings();
   String? _geminiApiKey;
+  String? _groqApiKey;
+  String? _openRouterApiKey;
   bool _loaded = false;
 
   AppSettings get settings => _settings;
   bool get isLoaded => _loaded;
-  bool get hasGeminiApiKey =>
-      _geminiApiKey != null && _geminiApiKey!.trim().isNotEmpty;
 
-  /// In-memory key for chat; never logged. Empty if unset.
+  bool get hasGeminiApiKey => _nonEmpty(_geminiApiKey);
+  bool get hasGroqApiKey => _nonEmpty(_groqApiKey);
+  bool get hasOpenRouterApiKey => _nonEmpty(_openRouterApiKey);
+
   String get geminiApiKey => _geminiApiKey?.trim() ?? '';
+  String get groqApiKey => _groqApiKey?.trim() ?? '';
+  String get openRouterApiKey => _openRouterApiKey?.trim() ?? '';
+
+  bool hasKeyFor(CloudProvider provider) {
+    switch (provider) {
+      case CloudProvider.gemini:
+        return hasGeminiApiKey;
+      case CloudProvider.groq:
+        return hasGroqApiKey;
+      case CloudProvider.openRouter:
+        return hasOpenRouterApiKey;
+    }
+  }
+
+  String apiKeyFor(CloudProvider provider) {
+    switch (provider) {
+      case CloudProvider.gemini:
+        return geminiApiKey;
+      case CloudProvider.groq:
+        return groqApiKey;
+      case CloudProvider.openRouter:
+        return openRouterApiKey;
+    }
+  }
+
+  static bool _nonEmpty(String? v) => v != null && v.trim().isNotEmpty;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -61,24 +97,45 @@ class SettingsStore extends ChangeNotifier {
       modelName: prefs.getString(_kModelName) ?? 'qwen2.5:7b',
       geminiModel:
           prefs.getString(_kGeminiModel) ?? AppSettings.defaultGeminiModel,
+      groqModel: prefs.getString(_kGroqModel) ?? AppSettings.defaultGroqModel,
+      openRouterModel: prefs.getString(_kOpenRouterModel) ??
+          AppSettings.defaultOpenRouterModel,
       llmMode: LlmModeX.fromStorage(prefs.getString(_kLlmMode)),
+      cloudProvider:
+          CloudProviderX.fromStorage(prefs.getString(_kCloudProvider)),
       systemPrompt: prompt,
     );
 
     try {
       _geminiApiKey = await _secure.read(key: _kGeminiApiKey);
+      _groqApiKey = await _secure.read(key: _kGroqApiKey);
+      _openRouterApiKey = await _secure.read(key: _kOpenRouterApiKey);
     } catch (_) {
-      _geminiApiKey = null;
+      // Leave keys null if secure storage fails.
     }
 
     _loaded = true;
     notifyListeners();
   }
 
+  Future<void> _writeKey(String storageKey, String? value) async {
+    if (value == null) return;
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      await _secure.delete(key: storageKey);
+    } else {
+      await _secure.write(key: storageKey, value: trimmed);
+    }
+  }
+
   Future<void> update(
     AppSettings next, {
     String? geminiApiKey,
+    String? groqApiKey,
+    String? openRouterApiKey,
     bool clearGeminiApiKey = false,
+    bool clearGroqApiKey = false,
+    bool clearOpenRouterApiKey = false,
   }) async {
     _settings = next;
     notifyListeners();
@@ -87,7 +144,10 @@ class SettingsStore extends ChangeNotifier {
     await prefs.setString(_kOllamaBaseUrl, next.ollamaBaseUrl);
     await prefs.setString(_kModelName, next.modelName);
     await prefs.setString(_kGeminiModel, next.geminiModel);
+    await prefs.setString(_kGroqModel, next.groqModel);
+    await prefs.setString(_kOpenRouterModel, next.openRouterModel);
     await prefs.setString(_kLlmMode, next.llmMode.storageValue);
+    await prefs.setString(_kCloudProvider, next.cloudProvider.storageValue);
     await prefs.setString(_kSystemPrompt, next.systemPrompt);
     await prefs.setInt(_kPromptVersion, AppSettings.currentPromptVersion);
 
@@ -95,15 +155,27 @@ class SettingsStore extends ChangeNotifier {
       await _secure.delete(key: _kGeminiApiKey);
       _geminiApiKey = null;
     } else if (geminiApiKey != null) {
-      final trimmed = geminiApiKey.trim();
-      if (trimmed.isEmpty) {
-        await _secure.delete(key: _kGeminiApiKey);
-        _geminiApiKey = null;
-      } else {
-        await _secure.write(key: _kGeminiApiKey, value: trimmed);
-        _geminiApiKey = trimmed;
-      }
+      await _writeKey(_kGeminiApiKey, geminiApiKey);
+      _geminiApiKey = geminiApiKey.trim().isEmpty ? null : geminiApiKey.trim();
     }
+
+    if (clearGroqApiKey) {
+      await _secure.delete(key: _kGroqApiKey);
+      _groqApiKey = null;
+    } else if (groqApiKey != null) {
+      await _writeKey(_kGroqApiKey, groqApiKey);
+      _groqApiKey = groqApiKey.trim().isEmpty ? null : groqApiKey.trim();
+    }
+
+    if (clearOpenRouterApiKey) {
+      await _secure.delete(key: _kOpenRouterApiKey);
+      _openRouterApiKey = null;
+    } else if (openRouterApiKey != null) {
+      await _writeKey(_kOpenRouterApiKey, openRouterApiKey);
+      _openRouterApiKey =
+          openRouterApiKey.trim().isEmpty ? null : openRouterApiKey.trim();
+    }
+
     notifyListeners();
   }
 }

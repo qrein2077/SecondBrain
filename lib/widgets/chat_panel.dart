@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../models/chat_message.dart';
+import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
 import '../screens/draft_preview_screen.dart';
 import '../state/app_controller.dart';
@@ -81,8 +82,11 @@ class _ChatPanelState extends State<ChatPanel> {
   String _backendStatus(AppController c) {
     final parts = <String>[];
     parts.add(c.ollamaOnline ? 'Ollama' : 'Ollama∅');
-    if (c.settingsStore.hasGeminiApiKey) {
-      parts.add(c.geminiReachable ? 'Gemini' : 'Gemini?');
+    final cloud = c.settings.cloudProvider.shortLabel;
+    if (c.settingsStore.hasKeyFor(c.settings.cloudProvider)) {
+      parts.add(c.cloudReachable ? cloud : '$cloud?');
+    } else {
+      parts.add('$cloud∅');
     }
     return parts.join(' · ');
   }
@@ -104,11 +108,11 @@ class _ChatPanelState extends State<ChatPanel> {
                 ),
               ),
               Icon(
-                c.ollamaOnline || c.geminiReachable
+                c.ollamaOnline || c.cloudReachable
                     ? Icons.circle
                     : Icons.circle_outlined,
                 size: 12,
-                color: c.ollamaOnline || c.geminiReachable
+                color: c.ollamaOnline || c.cloudReachable
                     ? Colors.green
                     : Colors.grey,
               ),

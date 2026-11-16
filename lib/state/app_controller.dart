@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
+import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
 import '../services/agent_parser.dart';
 import '../services/openai_compat_client.dart';
@@ -9,7 +10,33 @@ import '../services/settings_store.dart';
 import '../services/vault_service.dart';
 
 /// Which backend produced the last successful chat reply.
-enum LlmBackend { ollama, gemini }
+enum LlmBackend { ollama, gemini, groq, openRouter }
+
+extension LlmBackendX on LlmBackend {
+  String get label {
+    switch (this) {
+      case LlmBackend.ollama:
+        return 'Ollama';
+      case LlmBackend.gemini:
+        return 'Gemini';
+      case LlmBackend.groq:
+        return 'Groq';
+      case LlmBackend.openRouter:
+        return 'OpenRouter';
+    }
+  }
+
+  static LlmBackend fromCloud(CloudProvider p) {
+    switch (p) {
+      case CloudProvider.gemini:
+        return LlmBackend.gemini;
+      case CloudProvider.groq:
+        return LlmBackend.groq;
+      case CloudProvider.openRouter:
+        return LlmBackend.openRouter;
+    }
+  }
+}
 
 /// Top-level app state: settings, vault browsing, editor, chat, drafts.
 class AppController extends ChangeNotifier {
@@ -33,12 +60,16 @@ class AppController extends ChangeNotifier {
   bool chatBusy = false;
   String? chatError;
   bool ollamaOnline = false;
-  bool geminiReachable = false;
+  bool cloudReachable = false;
   LlmBackend? lastBackend;
 
   NoteDraftBundle? pendingDraft;
 
   AppSettings get settings => settingsStore.settings;
+
+  /// Kept for older UI bindings.
+  bool get geminiReachable =>
+      settings.cloudProvider == CloudProvider.gemini && cloudReachable;
 
   VaultService? get vault {
     final path = settings.vaultPath;
@@ -51,9 +82,10 @@ class AppController extends ChangeNotifier {
       case LlmMode.local:
         return settings.modelName;
       case LlmMode.cloud:
-        return settings.geminiModel;
+        return settings.cloudModelFor(settings.cloudProvider);
       case LlmMode.auto:
-        return '${settings.modelName} / ${settings.geminiModel}';
+        return '${settings.modelName} / '
+            '${settings.cloudModelFor(settings.cloudProvider)}';
     }
   }
 
@@ -71,13 +103,21 @@ class AppController extends ChangeNotifier {
   Future<void> saveSettings(
     AppSettings next, {
     String? geminiApiKey,
+    String? groqApiKey,
+    String? openRouterApiKey,
     bool clearGeminiApiKey = false,
+    bool clearGroqApiKey = false,
+    bool clearOpenRouterApiKey = false,
   }) async {
     final vaultChanged = next.vaultPath != settings.vaultPath;
     await settingsStore.update(
       next,
       geminiApiKey: geminiApiKey,
+      groqApiKey: groqApiKey,
+      openRouterApiKey: openRouterApiKey,
       clearGeminiApiKey: clearGeminiApiKey,
+      clearGroqApiKey: clearGroqApiKey,
+      clearOpenRouterApiKey: clearOpenRouterApiKey,
     );
     if (vaultChanged) {
       selectedPath = null;
@@ -91,15 +131,16 @@ class AppController extends ChangeNotifier {
 
   Future<void> checkBackends() async {
     ollamaOnline = await _llm.pingOllama(settings.ollamaBaseUrl);
-    if (settingsStore.hasGeminiApiKey) {
-      geminiReachable = await _llm.pingGemini(settingsStore.geminiApiKey);
+    final provider = settings.cloudProvider;
+    if (settingsStore.hasKeyFor(provider)) {
+      cloudReachable =
+          await _llm.pingCloud(provider, settingsStore.apiKeyFor(provider));
     } else {
-      geminiReachable = false;
+      cloudReachable = false;
     }
     notifyListeners();
   }
 
-  /// @Deprecated alias — prefer [checkBackends].
   Future<void> checkOllama() => checkBackends();
 
   Future<void> refreshVault() async {
@@ -154,7 +195,6 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// System prompt + live vault context (paths / open note).
   String buildChatSystemPrompt() {
     final buf = StringBuffer(settings.systemPrompt.trim());
     buf.writeln();
@@ -187,11 +227,34 @@ class AppController extends ChangeNotifier {
     return buf.toString();
   }
 
+  Future<({String content, LlmBackend backend})> _viaCloud(
+    CloudProvider provider, {
+    required String systemPrompt,
+    required List<ChatMessage> history,
+  }) async {
+    final key = settingsStore.apiKeyFor(provider);
+    if (key.isEmpty) {
+      throw LlmException(
+        'Облако (${provider.shortLabel}): укажите API-ключ в Настройках.',
+      );
+    }
+    final content = await _llm.chatCloud(
+      provider: provider,
+      apiKey: key,
+      model: settings.cloudModelFor(provider),
+      systemPrompt: systemPrompt,
+      history: history,
+    );
+    cloudReachable = true;
+    return (content: content, backend: LlmBackendX.fromCloud(provider));
+  }
+
   Future<({String content, LlmBackend backend})> _chatWithRouting({
     required String systemPrompt,
     required List<ChatMessage> history,
   }) async {
     final mode = settings.llmMode;
+    final provider = settings.cloudProvider;
     final ollamaUp = await _llm.pingOllama(settings.ollamaBaseUrl);
     ollamaOnline = ollamaUp;
 
@@ -205,45 +268,36 @@ class AppController extends ChangeNotifier {
       return (content: content, backend: LlmBackend.ollama);
     }
 
-    Future<({String content, LlmBackend backend})> viaGemini() async {
-      final key = settingsStore.geminiApiKey;
-      if (key.isEmpty) {
-        throw LlmException(
-          'Режим Gemini: укажите API-ключ Google AI Studio в Настройках.',
-        );
-      }
-      final content = await _llm.chatGemini(
-        apiKey: key,
-        model: settings.geminiModel,
-        systemPrompt: systemPrompt,
-        history: history,
-      );
-      geminiReachable = true;
-      return (content: content, backend: LlmBackend.gemini);
-    }
-
     switch (mode) {
       case LlmMode.local:
         return viaOllama();
       case LlmMode.cloud:
-        return viaGemini();
+        return _viaCloud(
+          provider,
+          systemPrompt: systemPrompt,
+          history: history,
+        );
       case LlmMode.auto:
         if (ollamaUp) {
           try {
             return await viaOllama();
           } catch (_) {
-            // Fall through to Gemini if Ollama fails mid-request.
+            // Fall through to selected cloud provider.
           }
         }
-        if (!settingsStore.hasGeminiApiKey) {
+        if (!settingsStore.hasKeyFor(provider)) {
           throw LlmException(
             ollamaUp
-                ? 'Ollama недоступна для ответа, а ключ Gemini не задан.'
-                : 'Ollama offline, ключ Gemini не задан. '
-                    'Включите Ollama или добавьте Gemini в Настройках.',
+                ? 'Ollama не ответила, а ключ ${provider.shortLabel} не задан.'
+                : 'Ollama offline, ключ ${provider.shortLabel} не задан. '
+                    'Включите Ollama или добавьте ключ облака в Настройках.',
           );
         }
-        return viaGemini();
+        return _viaCloud(
+          provider,
+          systemPrompt: systemPrompt,
+          history: history,
+        );
     }
   }
 
@@ -272,8 +326,6 @@ class AppController extends ChangeNotifier {
       );
       lastBackend = result.backend;
       final parsed = AgentParser.parse(result.content);
-      final backendTag =
-          result.backend == LlmBackend.ollama ? 'Ollama' : 'Gemini';
       chat.add(
         ChatMessage(
           role: ChatRole.assistant,
@@ -281,11 +333,10 @@ class AppController extends ChangeNotifier {
           draftBundle: parsed.draft,
         ),
       );
-      // Soft status line for transparency (not part of model reply).
       chat.add(
         ChatMessage(
           role: ChatRole.system,
-          content: 'Ответ через $backendTag',
+          content: 'Ответ через ${result.backend.label}',
         ),
       );
       if (parsed.draft != null && parsed.draft!.isNotEmpty) {

@@ -4,16 +4,18 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/chat_message.dart';
+import '../models/cloud_provider.dart';
 
-/// OpenAI-compatible chat completions client.
-/// Used for local Ollama (`…/v1/chat/completions`) and Gemini AI Studio
-/// (`…/v1beta/openai/chat/completions`). Concurrency = 1.
+/// OpenAI-compatible chat completions client (Ollama + cloud providers).
+/// Concurrency = 1.
 class OpenAiCompatClient {
   OpenAiCompatClient({http.Client? httpClient})
       : _http = httpClient ?? http.Client();
 
   static const geminiOpenAiBase =
       'https://generativelanguage.googleapis.com/v1beta/openai';
+  static const groqOpenAiBase = 'https://api.groq.com/openai/v1';
+  static const openRouterOpenAiBase = 'https://openrouter.ai/api/v1';
 
   final http.Client _http;
   Future<void> _queue = Future.value();
@@ -24,6 +26,7 @@ class OpenAiCompatClient {
     required String systemPrompt,
     required List<ChatMessage> history,
     String? bearerApiKey,
+    Map<String, String>? extraHeaders,
     Map<String, dynamic>? extraBody,
   }) {
     final completer = Completer<String>();
@@ -35,6 +38,7 @@ class OpenAiCompatClient {
           systemPrompt: systemPrompt,
           history: history,
           bearerApiKey: bearerApiKey,
+          extraHeaders: extraHeaders,
           extraBody: extraBody,
         );
         completer.complete(result);
@@ -63,6 +67,38 @@ class OpenAiCompatClient {
     );
   }
 
+  Future<String> chatCloud({
+    required CloudProvider provider,
+    required String apiKey,
+    required String model,
+    required String systemPrompt,
+    required List<ChatMessage> history,
+  }) {
+    switch (provider) {
+      case CloudProvider.gemini:
+        return chatGemini(
+          apiKey: apiKey,
+          model: model,
+          systemPrompt: systemPrompt,
+          history: history,
+        );
+      case CloudProvider.groq:
+        return chatGroq(
+          apiKey: apiKey,
+          model: model,
+          systemPrompt: systemPrompt,
+          history: history,
+        );
+      case CloudProvider.openRouter:
+        return chatOpenRouter(
+          apiKey: apiKey,
+          model: model,
+          systemPrompt: systemPrompt,
+          history: history,
+        );
+    }
+  }
+
   Future<String> chatGemini({
     required String apiKey,
     required String model,
@@ -78,12 +114,48 @@ class OpenAiCompatClient {
     );
   }
 
+  Future<String> chatGroq({
+    required String apiKey,
+    required String model,
+    required String systemPrompt,
+    required List<ChatMessage> history,
+  }) {
+    return chat(
+      completionsUri: Uri.parse('$groqOpenAiBase/chat/completions'),
+      model: model,
+      systemPrompt: systemPrompt,
+      history: history,
+      bearerApiKey: apiKey,
+    );
+  }
+
+  Future<String> chatOpenRouter({
+    required String apiKey,
+    required String model,
+    required String systemPrompt,
+    required List<ChatMessage> history,
+  }) {
+    return chat(
+      completionsUri: Uri.parse('$openRouterOpenAiBase/chat/completions'),
+      model: model,
+      systemPrompt: systemPrompt,
+      history: history,
+      bearerApiKey: apiKey,
+      extraHeaders: const {
+        // Recommended by OpenRouter for rankings / app identity.
+        'HTTP-Referer': 'https://github.com/qrein2077/SecondBrain',
+        'X-Title': 'SecondBrain',
+      },
+    );
+  }
+
   Future<String> _chatUnlocked({
     required Uri completionsUri,
     required String model,
     required String systemPrompt,
     required List<ChatMessage> history,
     String? bearerApiKey,
+    Map<String, String>? extraHeaders,
     Map<String, dynamic>? extraBody,
   }) async {
     final messages = <Map<String, String>>[
@@ -107,6 +179,7 @@ class OpenAiCompatClient {
       'Content-Type': 'application/json',
       if (bearerApiKey != null && bearerApiKey.isNotEmpty)
         'Authorization': 'Bearer $bearerApiKey',
+      ...?extraHeaders,
     };
 
     final response = await _http
@@ -148,11 +221,18 @@ class OpenAiCompatClient {
     }
   }
 
-  /// Light check: list models via OpenAI-compat (needs API key).
-  Future<bool> pingGemini(String apiKey) async {
+  Future<bool> pingCloud(CloudProvider provider, String apiKey) async {
     if (apiKey.trim().isEmpty) return false;
     try {
-      final uri = Uri.parse('$geminiOpenAiBase/models');
+      final Uri uri;
+      switch (provider) {
+        case CloudProvider.gemini:
+          uri = Uri.parse('$geminiOpenAiBase/models');
+        case CloudProvider.groq:
+          uri = Uri.parse('$groqOpenAiBase/models');
+        case CloudProvider.openRouter:
+          uri = Uri.parse('$openRouterOpenAiBase/models');
+      }
       final response = await _http
           .get(
             uri,
@@ -164,6 +244,10 @@ class OpenAiCompatClient {
       return false;
     }
   }
+
+  /// @Deprecated — use [pingCloud].
+  Future<bool> pingGemini(String apiKey) =>
+      pingCloud(CloudProvider.gemini, apiKey);
 
   void dispose() {
     _http.close();
@@ -178,5 +262,4 @@ class LlmException implements Exception {
   String toString() => message;
 }
 
-/// @Deprecated — use [LlmException].
 typedef OllamaException = LlmException;

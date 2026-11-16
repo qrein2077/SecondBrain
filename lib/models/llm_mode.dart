@@ -3,10 +3,10 @@ enum LlmMode {
   /// Always use local Ollama (default).
   local,
 
-  /// Always use Google Gemini (AI Studio API key required).
+  /// Always use the selected cloud provider (API key required).
   cloud,
 
-  /// Prefer Ollama; if unreachable, fall back to Gemini when a key is set.
+  /// Prefer Ollama; if unreachable, fall back to selected cloud provider.
   auto,
 }
 
@@ -18,9 +18,9 @@ extension LlmModeX on LlmMode {
       case LlmMode.local:
         return 'Локально (Ollama)';
       case LlmMode.cloud:
-        return 'Облако (Gemini)';
+        return 'Облако';
       case LlmMode.auto:
-        return 'Авто (Ollama → Gemini)';
+        return 'Авто (Ollama → облако)';
     }
   }
 

@@ -1,3 +1,4 @@
+import 'cloud_provider.dart';
 import 'llm_mode.dart';
 
 /// Persistent app settings for SecondBrain MVP.
@@ -8,7 +9,10 @@ class AppSettings {
     this.ollamaBaseUrl = 'http://127.0.0.1:11434',
     this.modelName = 'qwen2.5:7b',
     this.geminiModel = AppSettings.defaultGeminiModel,
+    this.groqModel = AppSettings.defaultGroqModel,
+    this.openRouterModel = AppSettings.defaultOpenRouterModel,
     this.llmMode = LlmMode.local,
+    this.cloudProvider = CloudProvider.groq,
     this.systemPrompt = AppSettings.defaultSystemPrompt,
   });
 
@@ -18,15 +22,23 @@ class AppSettings {
   /// Local Ollama model tag (default Qwen2.5).
   final String modelName;
 
-  /// Google Gemini model id for AI Studio / OpenAI-compat endpoint.
   final String geminiModel;
+  final String groqModel;
+  final String openRouterModel;
 
   /// local | cloud | auto — default local (Ollama).
   final LlmMode llmMode;
 
+  /// Which cloud backend when mode is cloud or auto-fallback.
+  /// Default Groq — often reachable where Gemini AI Studio is region-blocked.
+  final CloudProvider cloudProvider;
+
   final String systemPrompt;
 
   static const defaultGeminiModel = 'gemini-2.5-flash';
+  static const defaultGroqModel = 'llama-3.1-8b-instant';
+  static const defaultOpenRouterModel =
+      'meta-llama/llama-3.1-8b-instruct:free';
 
   /// Bumped when default agent instructions change meaningfully.
   static const int currentPromptVersion = 2;
@@ -98,12 +110,26 @@ class AppSettings {
         t == legacyDefaultSystemPromptV1.trim();
   }
 
+  String cloudModelFor(CloudProvider provider) {
+    switch (provider) {
+      case CloudProvider.gemini:
+        return geminiModel;
+      case CloudProvider.groq:
+        return groqModel;
+      case CloudProvider.openRouter:
+        return openRouterModel;
+    }
+  }
+
   AppSettings copyWith({
     String? vaultPath,
     String? ollamaBaseUrl,
     String? modelName,
     String? geminiModel,
+    String? groqModel,
+    String? openRouterModel,
     LlmMode? llmMode,
+    CloudProvider? cloudProvider,
     String? systemPrompt,
   }) {
     return AppSettings(
@@ -111,7 +137,10 @@ class AppSettings {
       ollamaBaseUrl: ollamaBaseUrl ?? this.ollamaBaseUrl,
       modelName: modelName ?? this.modelName,
       geminiModel: geminiModel ?? this.geminiModel,
+      groqModel: groqModel ?? this.groqModel,
+      openRouterModel: openRouterModel ?? this.openRouterModel,
       llmMode: llmMode ?? this.llmMode,
+      cloudProvider: cloudProvider ?? this.cloudProvider,
       systemPrompt: systemPrompt ?? this.systemPrompt,
     );
   }
