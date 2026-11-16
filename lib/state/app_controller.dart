@@ -442,13 +442,22 @@ class AppController extends ChangeNotifier {
       throw StateError('Нет черновика или vault');
     }
     final n = draft.files.length;
+    final delN = draft.deleteCount;
     final written = await v.approveDrafts(draft);
     pendingDraft = null;
+    if (selectedPath != null &&
+        draft.files.any((f) => f.isDelete && f.path == selectedPath)) {
+      selectedPath = null;
+      editorText = '';
+      editorDirty = false;
+    }
     await refreshVault();
     chat.add(
       ChatMessage(
         role: ChatRole.system,
-        content: 'Утверждён пакет ($n файл.): ${written.join(', ')}',
+        content: delN > 0
+            ? 'Утверждён пакет ($n, удал. $delN): ${written.join(', ')}'
+            : 'Утверждён пакет ($n файл.): ${written.join(', ')}',
       ),
     );
     notifyListeners();

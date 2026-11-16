@@ -247,8 +247,9 @@ class _ChatPanelState extends State<ChatPanel> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Пакет: ${c.pendingDraft!.files.length} файл(ов) — '
-                      '${c.pendingDraft!.files.map((f) => f.path).take(3).join(', ')}'
+                      'Пакет: ${c.pendingDraft!.files.length} '
+                      '(уд. ${c.pendingDraft!.deleteCount}) — '
+                      '${c.pendingDraft!.files.map((f) => f.isDelete ? '✕${f.path}' : f.path).take(3).join(', ')}'
                       '${c.pendingDraft!.files.length > 3 ? '…' : ''}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -356,7 +357,10 @@ class _ChatPanelState extends State<ChatPanel> {
                                 },
                                 icon: const Icon(Icons.preview, size: 16),
                                 label: Text(
-                                  'Пакет ${m.draftBundle!.files.length} файл.',
+                                  m.draftBundle!.hasDeletes
+                                      ? 'Пакет ${m.draftBundle!.files.length} '
+                                          '(уд. ${m.draftBundle!.deleteCount})'
+                                      : 'Пакет ${m.draftBundle!.files.length} файл.',
                                 ),
                               ),
                             ],

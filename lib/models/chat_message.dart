@@ -28,17 +28,36 @@ class NoteDraft {
   /// Relative path inside the vault (posix-style separators preferred).
   final String path;
 
-  /// Full markdown content to write on approve.
+  /// Full markdown content to write on approve (empty for delete).
   final String content;
 
-  /// `create` or `update`.
+  /// `create`, `update`, or `delete`.
   final String op;
 
+  bool get isDelete => op == 'delete';
+  bool get isUpdate => op == 'update';
+  bool get isCreate => op == 'create' || (op != 'update' && op != 'delete');
+
+  String get opLabelRu {
+    switch (op) {
+      case 'delete':
+        return 'удалить';
+      case 'update':
+        return 'обновить';
+      default:
+        return 'создать';
+    }
+  }
+
   factory NoteDraft.fromJson(Map<String, dynamic> json) {
+    var op = (json['op'] as String? ?? 'create').toLowerCase().trim();
+    if (op != 'create' && op != 'update' && op != 'delete') {
+      op = 'create';
+    }
     return NoteDraft(
       path: (json['path'] as String? ?? '').trim().replaceAll('\\', '/'),
       content: json['content'] as String? ?? '',
-      op: (json['op'] as String? ?? 'create').toLowerCase(),
+      op: op,
     );
   }
 
@@ -56,4 +75,8 @@ class NoteDraftBundle {
 
   bool get isEmpty => files.isEmpty;
   bool get isNotEmpty => files.isNotEmpty;
+
+  int get deleteCount => files.where((f) => f.isDelete).length;
+  int get writeCount => files.length - deleteCount;
+  bool get hasDeletes => deleteCount > 0;
 }

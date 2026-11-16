@@ -84,4 +84,38 @@ void main() {
     );
     expect(await File(p.join(tmp.path, 'ok.md')).exists(), isFalse);
   });
+
+  test('approveDrafts supports mixed create and delete', () async {
+    final keep = File(p.join(tmp.path, 'keep.md'));
+    final gone = File(p.join(tmp.path, 'gone.md'));
+    await keep.writeAsString('# keep');
+    await gone.writeAsString('# gone');
+
+    final vault = VaultService(vaultRoot: tmp.path);
+    final applied = await vault.approveDrafts(
+      const NoteDraftBundle(
+        files: [
+          NoteDraft(path: 'new.md', op: 'create', content: '# new'),
+          NoteDraft(path: 'gone.md', op: 'delete', content: ''),
+        ],
+      ),
+    );
+    expect(applied, contains('new.md'));
+    expect(applied.any((a) => a.contains('gone.md')), isTrue);
+    expect(await File(p.join(tmp.path, 'new.md')).exists(), isTrue);
+    expect(await gone.exists(), isFalse);
+    expect(await keep.exists(), isTrue);
+  });
+
+  test('delete of missing file is idempotent', () async {
+    final vault = VaultService(vaultRoot: tmp.path);
+    final applied = await vault.approveDrafts(
+      const NoteDraftBundle(
+        files: [
+          NoteDraft(path: 'nope.md', op: 'delete', content: ''),
+        ],
+      ),
+    );
+    expect(applied.single, contains('nope.md'));
+  });
 }
