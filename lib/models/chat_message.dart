@@ -6,12 +6,16 @@ class ChatMessage {
     required this.content,
     DateTime? createdAt,
     this.draftBundle,
+    this.sources = const [],
   }) : createdAt = createdAt ?? DateTime.now();
 
   final ChatRole role;
   final String content;
   final DateTime createdAt;
   final NoteDraftBundle? draftBundle;
+
+  /// Vault-relative note paths used for RAG-lite grounding (assistant turns).
+  final List<String> sources;
 }
 
 class NoteDraft {

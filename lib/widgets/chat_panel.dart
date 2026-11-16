@@ -142,14 +142,15 @@ class _ChatPanelState extends State<ChatPanel> {
 
   String _emptyHint() {
     if (c.settings.qaOnly) {
-      return 'Режим «Только ответы»: задайте вопрос — агент не предложит '
-          'запись в vault.\n'
+      return 'Режим «Только ответы»: спросите, например, '
+          '«что я уже знаю по физике» — агент ответит по заметкам vault '
+          '(RAG-lite), не отправит вас открывать файлы сами.\n'
           '${WhisperSttService.isSupported ? 'Микрофон: локальный Whisper (base).\n' : ''}'
           'Для правок заметок переключите на «Может править vault».';
     }
     return 'Напишите идею или вопрос.\n'
-        'В режиме правок агент сначала уточнит детали, затем предложит '
-        'несколько связанных .md с [[wiki-links]].\n'
+        'Вопросы о знаниях отвечаются по выдержкам из vault; '
+        'для правок агент сначала уточнит, затем предложит пакет .md.\n'
         'Запись в vault — только после «Утвердить все».\n'
         '${WhisperSttService.isSupported ? 'Микрофон → Whisper → текст в поле ввода.' : ''}';
   }
@@ -315,6 +316,30 @@ class _ChatPanelState extends State<ChatPanel> {
                             ),
                             const SizedBox(height: 4),
                             SelectableText(m.content),
+                            if (m.role == ChatRole.assistant &&
+                                m.sources.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                'Источники',
+                                style: Theme.of(context).textTheme.labelSmall,
+                              ),
+                              const SizedBox(height: 4),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  for (final src in m.sources.take(8))
+                                    ActionChip(
+                                      visualDensity: VisualDensity.compact,
+                                      label: Text(
+                                        src,
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                      onPressed: () => c.openNote(src),
+                                    ),
+                                ],
+                              ),
+                            ],
                             if (showDraft) ...[
                               const SizedBox(height: 8),
                               OutlinedButton.icon(

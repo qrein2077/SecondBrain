@@ -7,6 +7,7 @@ import '../models/llm_mode.dart';
 import '../services/agent_parser.dart';
 import '../services/openai_compat_client.dart';
 import '../services/settings_store.dart';
+import '../services/vault_retriever.dart';
 import '../services/vault_service.dart';
 
 /// Which backend produced the last successful chat reply.
@@ -64,6 +65,11 @@ class AppController extends ChangeNotifier {
   LlmBackend? lastBackend;
 
   NoteDraftBundle? pendingDraft;
+
+  /// Paths from the last RAG-lite retrieval (for UI chips).
+  List<String> lastRetrievalSources = [];
+
+  final VaultRetriever _retriever = const VaultRetriever();
 
   AppSettings get settings => settingsStore.settings;
 
@@ -204,8 +210,11 @@ class AppController extends ChangeNotifier {
     await saveSettings(settings.copyWith(qaOnly: value));
   }
 
-  String buildChatSystemPrompt() {
+  String buildChatSystemPrompt({List<VaultHit> hits = const []}) {
     final buf = StringBuffer(settings.systemPrompt.trim());
+    buf.writeln();
+    buf.writeln();
+    buf.writeln(AppSettings.vaultGroundingAddonPrompt.trim());
     if (settings.qaOnly) {
       buf.writeln();
       buf.writeln();
@@ -213,16 +222,19 @@ class AppController extends ChangeNotifier {
     }
     buf.writeln();
     buf.writeln();
+    buf.writeln(VaultRetriever.formatForPrompt(hits));
+    buf.writeln();
+    buf.writeln();
     buf.writeln('## Контекст vault (приложение, не пользователь)');
     if (settings.qaOnly) {
       buf.writeln(
-        'Режим только ответов: используй список файлов лишь как справку для Q&A, '
-        'не предлагай запись.',
+        'Режим только ответов: анализируй выдержки выше; '
+        'список путей — справочно. Не предлагай запись.',
       );
     } else {
       buf.writeln(
-        'Работай со ВСЕМ vault. Не ограничивайся одной заметкой. '
-        'Сначала уточняй, потом предлагай пакет заметок.',
+        'Работай со ВСЕМ vault. На вопросы о знаниях — сначала выдержки. '
+        'Для правок: сначала уточняй, потом предлагай пакет заметок.',
       );
     }
     if (selectedPath != null && selectedPath!.isNotEmpty) {
@@ -347,8 +359,23 @@ class AppController extends ChangeNotifier {
         } catch (_) {}
       }
 
+      List<VaultHit> hits = const [];
+      final v = vault;
+      if (v != null && markdownFiles.isNotEmpty) {
+        try {
+          hits = await _retriever.retrieve(
+            vault: v,
+            files: markdownFiles,
+            query: text,
+          );
+        } catch (_) {
+          hits = const [];
+        }
+      }
+      lastRetrievalSources = hits.map((h) => h.path).toList();
+
       final result = await _chatWithRouting(
-        systemPrompt: buildChatSystemPrompt(),
+        systemPrompt: buildChatSystemPrompt(hits: hits),
         history: chat
             .where((m) =>
                 m.role == ChatRole.user || m.role == ChatRole.assistant)
@@ -364,14 +391,18 @@ class AppController extends ChangeNotifier {
           role: ChatRole.assistant,
           content: parsed.displayText,
           draftBundle: parsed.draft,
+          sources: List<String>.from(lastRetrievalSources),
         ),
       );
+      final srcNote = hits.isEmpty
+          ? 'источники: не найдены'
+          : 'источники: ${hits.length}';
       chat.add(
         ChatMessage(
           role: ChatRole.system,
           content: settings.qaOnly
-              ? 'Ответ через ${result.backend.label} · только ответы'
-              : 'Ответ через ${result.backend.label}',
+              ? 'Ответ через ${result.backend.label} · только ответы · $srcNote'
+              : 'Ответ через ${result.backend.label} · $srcNote',
         ),
       );
       if (!settings.qaOnly &&
@@ -440,6 +471,7 @@ class AppController extends ChangeNotifier {
   void clearChat() {
     chat.clear();
     pendingDraft = null;
+    lastRetrievalSources = [];
     chatError = null;
     notifyListeners();
   }
