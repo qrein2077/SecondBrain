@@ -1,10 +1,10 @@
 # SecondBrain
 
 Local-first AI companion for an Obsidian vault (Windows + Android).  
-Chat with one universal agent via **local Ollama only** — no cloud LLM APIs.  
+Default LLM is **local Ollama (Qwen2.5)**; optional **Google Gemini** (AI Studio) via cloud / auto modes.  
 The app **never writes** to the vault until you **Approve** a draft preview. Remotely Save is left alone.
 
-**English (short):** Preferred — download `SecondBrain-Setup-*.exe` from [GitHub Actions](https://github.com/qrein2077/SecondBrain/actions/workflows/windows-installer.yml) (artifact **SecondBrain-Setup-Windows**), run it, then install Ollama + `ollama pull qwen2.5:7b`. Update = run the newer setup.exe (settings in AppData survive). Advanced — build from source with Flutter (Russian steps below).
+**English (short):** Download `SecondBrain-Setup-*.exe` from [Actions](https://github.com/qrein2077/SecondBrain/actions/workflows/windows-installer.yml) → install → Ollama + `qwen2.5:7b` (default). Optional: paste Gemini API key in Settings, pick model, switch mode to cloud/auto. Update = new setup.exe. Flutter-from-source is advanced (Russian below).
 
 ---
 
@@ -13,8 +13,8 @@ The app **never writes** to the vault until you **Approve** a draft preview. Rem
 - Выбор локальной папки Obsidian vault
 - Список `.md`, редактор Markdown + превью, ручное сохранение
 - Один универсальный агент (редактируемый system prompt)
-- Ollama (OpenAI-compatible API), модель по умолчанию `qwen2.5:7b`
-- Предложение создать/обновить одну или несколько связанных заметок (`[[wiki-links]]`) → превью → **Утвердить / Отклонить** → атомарная запись только после **Утвердить**
+- LLM: **Ollama** по умолчанию (`qwen2.5:7b`) + опционально **Gemini** (режимы local / cloud / auto)
+- Предложение создать/обновить одну или несколько связанных заметок (`[[wiki-links]]`) → превью → **Утвердить все / Отклонить все**
 - Базовые русские подписи в UI
 - Windows-установщик (Inno Setup) + сборка в GitHub Actions
 
@@ -33,9 +33,11 @@ The app **never writes** to the vault until you **Approve** a draft preview. Rem
 | **Вы (день за днём)** | Скачиваете новый `SecondBrain-Setup-*.exe` → запускаете → приложение обновляется в Program Files (или выбранной папке). Flutter не нужен. |
 | **CI / разработчик** | На каждый push в PR/`main` GitHub Actions на Windows собирает Flutter Release + Inno Setup и кладёт артефакт. |
 
-### 1. Ollama (всё ещё нужна локально)
+### 1. LLM: Ollama (по умолчанию) и/или Gemini (опционально)
 
-Установщик SecondBrain **не** включает нейросеть — только UI-клиент.
+Установщик SecondBrain **не** включает модели — только UI-клиент.
+
+**Рекомендуемый путь (локально):**
 
 1. Установите [Ollama для Windows](https://ollama.com)
 2. Скачайте модель:
@@ -45,6 +47,8 @@ ollama pull qwen2.5:7b
 ```
 
 3. Проверьте: `http://127.0.0.1:11434` отвечает.
+
+**Опционально — Google Gemini** (если хотите cloud / auto): см. [Gemini (Google AI Studio)](#gemini-google-ai-studio) ниже. Без ключа достаточно режима «Локально (Ollama)».
 
 ### 2. Скачать установщик из GitHub Actions
 
@@ -69,8 +73,8 @@ ollama pull qwen2.5:7b
 ### 4. Первый запуск после установки
 
 1. Запустите **SecondBrain** из меню Пуск.
-2. **Настройки** (шестерёнка): папка vault → URL `http://127.0.0.1:11434` → модель `qwen2.5:7b` → **Сохранить**.
-3. Чат и редактор — как в MVP. Запись в vault только после **Утвердить** черновик.
+2. **Настройки** (шестерёнка): папка vault → режим LLM (**Локально** по умолчанию) → Ollama URL `http://127.0.0.1:11434` → модель `qwen2.5:7b` → при необходимости Gemini (ключ + модель) → **Сохранить**.
+3. Чат и редактор — как в MVP. Запись в vault только после **Утвердить все**.
 
 ### Сборка установщика у себя (опционально)
 
@@ -85,6 +89,37 @@ ollama pull qwen2.5:7b
 
 ---
 
+## Gemini (Google AI Studio)
+
+Опциональный облачный backend. Vault по-прежнему local-first; в облако уходит текст чата (промпт + история), не «весь диск». Черновики `.md` пишутся локально только после Approve.
+
+### Как получить бесплатный API-ключ
+
+1. Откройте [Google AI Studio](https://aistudio.google.com/) и войдите в Google-аккаунт.
+2. **Get API key** / [API keys](https://aistudio.google.com/apikey) → создайте ключ.
+3. Скопируйте ключ (обычно `AIza…`). **Не коммитьте** в git и не кладите в vault.
+
+### Настройка в SecondBrain
+
+1. **Настройки** → блок **Облако — Google Gemini**
+2. Вставьте API-ключ (хранится в защищённом хранилище ОС через `flutter_secure_storage`).
+3. Укажите **модель вручную**:
+
+| Модель | Зачем |
+|--------|--------|
+| `gemini-2.5-flash` | **Default** — быстрый free-tier-ориентир |
+| `gemini-2.5-pro` | Качественнее, медленнее |
+| `gemini-3.8-flash` | Более новый flash (если доступен вашему ключу) |
+
+Имена — как в [OpenAI-compat docs](https://aistudio.google.com/docs/openai). При «model not found» смените тег.
+
+4. Режим LLM: **Локально** (default) / **Облако (Gemini)** / **Авто (Ollama → Gemini)**.
+5. **Сохранить** → в чате строка «Ответ через Ollama/Gemini» покажет backend.
+
+Технически: `POST https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` + `Authorization: Bearer <key>`. Multi-file `<<<PROPOSE_NOTES>>>` + Approve одинаковы для обоих backends.
+
+---
+
 ## Сборка из исходников (для разработчиков)
 
 Если хотите править код и запускать без установщика — ставьте toolchain ниже. Для простого использования достаточно раздела **«Установка через установщик»**.
@@ -96,7 +131,8 @@ ollama pull qwen2.5:7b
 | **Git** | Клонировать репозиторий |
 | **Flutter (stable)** | Сборка и запуск приложения |
 | **Visual Studio 2022** с workload **Desktop development with C++** | Компиляция Windows desktop |
-| **Ollama** | Локальный LLM (никаких облачных chat API) |
+| **Ollama** | Локальный LLM по умолчанию |
+| **(опц.) ключ Gemini** | Cloud / auto режимы через Google AI Studio |
 | Модель **`qwen2.5:7b`** | Default chat (Qwen2.5 7B–8B Q4/Q5) |
 | Папка **Obsidian vault** | Локальная копия заметок (как у Remotely Save) |
 
@@ -207,7 +243,7 @@ curl http://127.0.0.1:11434/api/tags
 
 или откройте в браузере: `http://127.0.0.1:11434` — должен ответить Ollama.
 
-**Важно:** облачные LLM API в SecondBrain **запрещены**. Только локальный Ollama (или совместимый endpoint на вашей машине / LAN / позже Tailscale).
+**По умолчанию** используется локальный Ollama. Gemini — **opt-in** (ключ в защищённом хранилище устройства, не в vault/git). Можно оставить только Ollama.
 
 Если тег `qwen2.5:7b` недоступен, подтяните ближайший Q4/Q5 вариант, например:
 
@@ -294,27 +330,24 @@ flutter test
 ### 8. Первый запуск — настройки
 
 1. В шапке приложения нажмите **шестерёнку** → **Настройки**.
-2. **Путь к папке vault** → **Обзор…** и выберите корень Obsidian vault (ту же локальную папку, что синкает Remotely Save).  
-   SecondBrain **не** меняет Remotely Save / Cloud.Mail — только читает/пишет выбранную локальную папку.
-3. **Ollama base URL:** `http://127.0.0.1:11434` (по умолчанию).
-4. **Модель:** `qwen2.5:7b` (или ваш точный тег из `ollama list`).
-5. При желании отредактируйте **System prompt агента** (или оставьте дефолт) → **Сохранить**.
+2. **Путь к папке vault** → **Обзор…** (корень Obsidian vault; Remotely Save не трогаем).
+3. **Режим LLM:** Локально / Облако / Авто (default — Локально).
+4. **Ollama:** URL `http://127.0.0.1:11434`, модель `qwen2.5:7b`.
+5. **(Опц.) Gemini:** API-ключ + модель (`gemini-2.5-flash` и т.д.).
+6. System prompt при желании → **Сохранить**.
 
-Дальше:
-
-- Слева — список `.md`, по клику — редактор (Markdown слева, превью справа) → **Сохранить** для ручных правок.  
-- Справа — **Чат с агентом**. Индикатор Ollama online/offline можно обновить кнопкой проверки связи.
+Дальше: список `.md` / редактор слева; чат справа (индикатор Ollama/Gemini).
 
 ---
 
 ### 9. Запись в vault только после Approve
 
-Агент **не** пишет файлы сам. Он может предложить черновик (один или несколько `.md` + `[[wiki-links]]`).
+Агент **не** пишет файлы сам (ни через Ollama, ни через Gemini). Он предлагает пакет `.md` + `[[wiki-links]]`.
 
-1. В ответе появится кнопка/баннер **Черновик**.
-2. Откройте превью: пути + Markdown + превью.
-3. **Отклонить** — vault не меняется.  
-4. **Утвердить** — атомарная запись каждого файла (`temp` → rename) **только** внутрь выбранного vault.
+1. Баннер/кнопка **Пакет N файл.**
+2. Превью: список путей + Markdown.
+3. **Отклонить все** — vault не меняется.  
+4. **Утвердить все** — пакетная запись (`temp` → rename) **только** внутрь vault.
 
 Ручное сохранение открытой заметки в редакторе — отдельное явное действие пользователя (**Сохранить**).
 

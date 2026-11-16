@@ -1,16 +1,32 @@
+import 'llm_mode.dart';
+
 /// Persistent app settings for SecondBrain MVP.
+/// API keys are NOT stored here — see secure storage in [SettingsStore].
 class AppSettings {
   const AppSettings({
     this.vaultPath = '',
     this.ollamaBaseUrl = 'http://127.0.0.1:11434',
     this.modelName = 'qwen2.5:7b',
+    this.geminiModel = AppSettings.defaultGeminiModel,
+    this.llmMode = LlmMode.local,
     this.systemPrompt = AppSettings.defaultSystemPrompt,
   });
 
   final String vaultPath;
   final String ollamaBaseUrl;
+
+  /// Local Ollama model tag (default Qwen2.5).
   final String modelName;
+
+  /// Google Gemini model id for AI Studio / OpenAI-compat endpoint.
+  final String geminiModel;
+
+  /// local | cloud | auto — default local (Ollama).
+  final LlmMode llmMode;
+
   final String systemPrompt;
+
+  static const defaultGeminiModel = 'gemini-2.5-flash';
 
   /// Bumped when default agent instructions change meaningfully.
   static const int currentPromptVersion = 2;
@@ -86,31 +102,17 @@ class AppSettings {
     String? vaultPath,
     String? ollamaBaseUrl,
     String? modelName,
+    String? geminiModel,
+    LlmMode? llmMode,
     String? systemPrompt,
   }) {
     return AppSettings(
       vaultPath: vaultPath ?? this.vaultPath,
       ollamaBaseUrl: ollamaBaseUrl ?? this.ollamaBaseUrl,
       modelName: modelName ?? this.modelName,
+      geminiModel: geminiModel ?? this.geminiModel,
+      llmMode: llmMode ?? this.llmMode,
       systemPrompt: systemPrompt ?? this.systemPrompt,
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-        'vaultPath': vaultPath,
-        'ollamaBaseUrl': ollamaBaseUrl,
-        'modelName': modelName,
-        'systemPrompt': systemPrompt,
-      };
-
-  factory AppSettings.fromJson(Map<String, dynamic> json) {
-    return AppSettings(
-      vaultPath: json['vaultPath'] as String? ?? '',
-      ollamaBaseUrl:
-          json['ollamaBaseUrl'] as String? ?? 'http://127.0.0.1:11434',
-      modelName: json['modelName'] as String? ?? 'qwen2.5:7b',
-      systemPrompt:
-          json['systemPrompt'] as String? ?? AppSettings.defaultSystemPrompt,
     );
   }
 }

@@ -2,21 +2,25 @@ import 'package:flutter/foundation.dart';
 
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
+import '../models/llm_mode.dart';
 import '../services/agent_parser.dart';
-import '../services/ollama_client.dart';
+import '../services/openai_compat_client.dart';
 import '../services/settings_store.dart';
 import '../services/vault_service.dart';
+
+/// Which backend produced the last successful chat reply.
+enum LlmBackend { ollama, gemini }
 
 /// Top-level app state: settings, vault browsing, editor, chat, drafts.
 class AppController extends ChangeNotifier {
   AppController({
     SettingsStore? settingsStore,
-    OllamaClient? ollamaClient,
+    OpenAiCompatClient? llmClient,
   })  : settingsStore = settingsStore ?? SettingsStore(),
-        _ollama = ollamaClient ?? OllamaClient();
+        _llm = llmClient ?? OpenAiCompatClient();
 
   final SettingsStore settingsStore;
-  final OllamaClient _ollama;
+  final OpenAiCompatClient _llm;
 
   List<String> markdownFiles = [];
   String? selectedPath;
@@ -29,6 +33,8 @@ class AppController extends ChangeNotifier {
   bool chatBusy = false;
   String? chatError;
   bool ollamaOnline = false;
+  bool geminiReachable = false;
+  LlmBackend? lastBackend;
 
   NoteDraftBundle? pendingDraft;
 
@@ -40,34 +46,61 @@ class AppController extends ChangeNotifier {
     return VaultService(vaultRoot: path);
   }
 
+  String get activeModelLabel {
+    switch (settings.llmMode) {
+      case LlmMode.local:
+        return settings.modelName;
+      case LlmMode.cloud:
+        return settings.geminiModel;
+      case LlmMode.auto:
+        return '${settings.modelName} / ${settings.geminiModel}';
+    }
+  }
+
   Future<void> init() async {
     await settingsStore.load();
     settingsStore.addListener(_onSettingsChanged);
     await refreshVault();
-    await checkOllama();
+    await checkBackends();
   }
 
   void _onSettingsChanged() {
     notifyListeners();
   }
 
-  Future<void> saveSettings(AppSettings next) async {
+  Future<void> saveSettings(
+    AppSettings next, {
+    String? geminiApiKey,
+    bool clearGeminiApiKey = false,
+  }) async {
     final vaultChanged = next.vaultPath != settings.vaultPath;
-    await settingsStore.update(next);
+    await settingsStore.update(
+      next,
+      geminiApiKey: geminiApiKey,
+      clearGeminiApiKey: clearGeminiApiKey,
+    );
     if (vaultChanged) {
       selectedPath = null;
       editorText = '';
       editorDirty = false;
       await refreshVault();
     }
-    await checkOllama();
+    await checkBackends();
     notifyListeners();
   }
 
-  Future<void> checkOllama() async {
-    ollamaOnline = await _ollama.ping(settings.ollamaBaseUrl);
+  Future<void> checkBackends() async {
+    ollamaOnline = await _llm.pingOllama(settings.ollamaBaseUrl);
+    if (settingsStore.hasGeminiApiKey) {
+      geminiReachable = await _llm.pingGemini(settingsStore.geminiApiKey);
+    } else {
+      geminiReachable = false;
+    }
     notifyListeners();
   }
+
+  /// @Deprecated alias — prefer [checkBackends].
+  Future<void> checkOllama() => checkBackends();
 
   Future<void> refreshVault() async {
     final v = vault;
@@ -94,9 +127,6 @@ class AppController extends ChangeNotifier {
   Future<void> openNote(String relativePath) async {
     final v = vault;
     if (v == null) return;
-    if (editorDirty) {
-      // Caller should confirm; still allow force via discard+open.
-    }
     try {
       editorText = await v.readNote(relativePath);
       selectedPath = relativePath;
@@ -125,7 +155,6 @@ class AppController extends ChangeNotifier {
   }
 
   /// System prompt + live vault context (paths / open note).
-  /// Open note is advisory only — proposals stay vault-scoped / multi-file.
   String buildChatSystemPrompt() {
     final buf = StringBuffer(settings.systemPrompt.trim());
     buf.writeln();
@@ -158,6 +187,66 @@ class AppController extends ChangeNotifier {
     return buf.toString();
   }
 
+  Future<({String content, LlmBackend backend})> _chatWithRouting({
+    required String systemPrompt,
+    required List<ChatMessage> history,
+  }) async {
+    final mode = settings.llmMode;
+    final ollamaUp = await _llm.pingOllama(settings.ollamaBaseUrl);
+    ollamaOnline = ollamaUp;
+
+    Future<({String content, LlmBackend backend})> viaOllama() async {
+      final content = await _llm.chatOllama(
+        baseUrl: settings.ollamaBaseUrl,
+        model: settings.modelName,
+        systemPrompt: systemPrompt,
+        history: history,
+      );
+      return (content: content, backend: LlmBackend.ollama);
+    }
+
+    Future<({String content, LlmBackend backend})> viaGemini() async {
+      final key = settingsStore.geminiApiKey;
+      if (key.isEmpty) {
+        throw LlmException(
+          'Режим Gemini: укажите API-ключ Google AI Studio в Настройках.',
+        );
+      }
+      final content = await _llm.chatGemini(
+        apiKey: key,
+        model: settings.geminiModel,
+        systemPrompt: systemPrompt,
+        history: history,
+      );
+      geminiReachable = true;
+      return (content: content, backend: LlmBackend.gemini);
+    }
+
+    switch (mode) {
+      case LlmMode.local:
+        return viaOllama();
+      case LlmMode.cloud:
+        return viaGemini();
+      case LlmMode.auto:
+        if (ollamaUp) {
+          try {
+            return await viaOllama();
+          } catch (_) {
+            // Fall through to Gemini if Ollama fails mid-request.
+          }
+        }
+        if (!settingsStore.hasGeminiApiKey) {
+          throw LlmException(
+            ollamaUp
+                ? 'Ollama недоступна для ответа, а ключ Gemini не задан.'
+                : 'Ollama offline, ключ Gemini не задан. '
+                    'Включите Ollama или добавьте Gemini в Настройках.',
+          );
+        }
+        return viaGemini();
+    }
+  }
+
   Future<void> sendChat(String userText) async {
     final text = userText.trim();
     if (text.isEmpty || chatBusy) return;
@@ -168,25 +257,23 @@ class AppController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Refresh vault list so proposals see current files.
       if (vault != null) {
         try {
           markdownFiles = await vault!.listMarkdownFiles();
-        } catch (_) {
-          // Keep previous list; chat can still proceed.
-        }
+        } catch (_) {}
       }
 
-      final reply = await _ollama.chat(
-        baseUrl: settings.ollamaBaseUrl,
-        model: settings.modelName,
+      final result = await _chatWithRouting(
         systemPrompt: buildChatSystemPrompt(),
         history: chat
             .where((m) =>
                 m.role == ChatRole.user || m.role == ChatRole.assistant)
             .toList(),
       );
-      final parsed = AgentParser.parse(reply);
+      lastBackend = result.backend;
+      final parsed = AgentParser.parse(result.content);
+      final backendTag =
+          result.backend == LlmBackend.ollama ? 'Ollama' : 'Gemini';
       chat.add(
         ChatMessage(
           role: ChatRole.assistant,
@@ -194,14 +281,25 @@ class AppController extends ChangeNotifier {
           draftBundle: parsed.draft,
         ),
       );
+      // Soft status line for transparency (not part of model reply).
+      chat.add(
+        ChatMessage(
+          role: ChatRole.system,
+          content: 'Ответ через $backendTag',
+        ),
+      );
       if (parsed.draft != null && parsed.draft!.isNotEmpty) {
         pendingDraft = parsed.draft;
       }
-      ollamaOnline = true;
+      if (result.backend == LlmBackend.ollama) {
+        ollamaOnline = true;
+      }
     } catch (e) {
       chatError = e.toString();
       chat.add(ChatMessage(role: ChatRole.error, content: e.toString()));
-      ollamaOnline = false;
+      if (settings.llmMode == LlmMode.local) {
+        ollamaOnline = false;
+      }
     } finally {
       chatBusy = false;
       notifyListeners();
@@ -231,8 +329,7 @@ class AppController extends ChangeNotifier {
     chat.add(
       ChatMessage(
         role: ChatRole.system,
-        content:
-            'Утверждён пакет ($n файл.): ${written.join(', ')}',
+        content: 'Утверждён пакет ($n файл.): ${written.join(', ')}',
       ),
     );
     notifyListeners();
@@ -245,8 +342,7 @@ class AppController extends ChangeNotifier {
     chat.add(
       ChatMessage(
         role: ChatRole.system,
-        content:
-            'Пакет черновика отклонён ($n файл.). Vault не изменён.',
+        content: 'Пакет черновика отклонён ($n файл.). Vault не изменён.',
       ),
     );
     pendingDraft = null;
@@ -263,7 +359,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     settingsStore.removeListener(_onSettingsChanged);
-    _ollama.dispose();
+    _llm.dispose();
     super.dispose();
   }
 }

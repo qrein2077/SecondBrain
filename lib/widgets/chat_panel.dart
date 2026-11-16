@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../models/chat_message.dart';
+import '../models/llm_mode.dart';
 import '../screens/draft_preview_screen.dart';
 import '../state/app_controller.dart';
 
@@ -77,6 +78,15 @@ class _ChatPanelState extends State<ChatPanel> {
     }
   }
 
+  String _backendStatus(AppController c) {
+    final parts = <String>[];
+    parts.add(c.ollamaOnline ? 'Ollama' : 'Ollama∅');
+    if (c.settingsStore.hasGeminiApiKey) {
+      parts.add(c.geminiReachable ? 'Gemini' : 'Gemini?');
+    }
+    return parts.join(' · ');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -94,21 +104,25 @@ class _ChatPanelState extends State<ChatPanel> {
                 ),
               ),
               Icon(
-                c.ollamaOnline ? Icons.circle : Icons.circle_outlined,
+                c.ollamaOnline || c.geminiReachable
+                    ? Icons.circle
+                    : Icons.circle_outlined,
                 size: 12,
-                color: c.ollamaOnline ? Colors.green : Colors.grey,
+                color: c.ollamaOnline || c.geminiReachable
+                    ? Colors.green
+                    : Colors.grey,
               ),
               const SizedBox(width: 4),
               Flexible(
                 child: Text(
-                  c.ollamaOnline ? 'Ollama' : 'offline',
+                  _backendStatus(c),
                   style: Theme.of(context).textTheme.bodySmall,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               IconButton(
-                tooltip: 'Проверить Ollama',
-                onPressed: () => c.checkOllama(),
+                tooltip: 'Проверить LLM',
+                onPressed: () => c.checkBackends(),
                 visualDensity: VisualDensity.compact,
                 icon: const Icon(Icons.wifi_tethering, size: 20),
               ),
@@ -124,7 +138,7 @@ class _ChatPanelState extends State<ChatPanel> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
-            '${c.settings.modelName} · concurrency 1',
+            '${c.settings.llmMode.labelRu} · ${c.activeModelLabel} · concurrency 1',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
