@@ -34,6 +34,12 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // Avoid AGP lintVital crash on dependency plugins (url_launcher_android).
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 }
 
 kotlin {
