@@ -138,7 +138,11 @@ class _ChatPanelState extends State<ChatPanel> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Черновик: ${c.pendingDraft!.files.length} файл(ов) ждут approve',
+                      'Пакет: ${c.pendingDraft!.files.length} файл(ов) — '
+                      '${c.pendingDraft!.files.map((f) => f.path).take(3).join(', ')}'
+                      '${c.pendingDraft!.files.length > 3 ? '…' : ''}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   TextButton(
@@ -156,7 +160,7 @@ class _ChatPanelState extends State<ChatPanel> {
                   ),
                   TextButton(
                     onPressed: () => c.rejectPendingDraft(),
-                    child: const Text('Отклонить'),
+                    child: const Text('Отклонить все'),
                   ),
                 ],
               ),
@@ -169,7 +173,10 @@ class _ChatPanelState extends State<ChatPanel> {
                     padding: EdgeInsets.all(16),
                     child: Text(
                       'Напишите идею или вопрос.\n'
-                      'Агент предложит .md только как черновик — запись после Утвердить.',
+                      'Агент работает со ВСЕМ vault и может предложить '
+                      'несколько связанных .md с [[wiki-links]].\n'
+                      'Запись в vault — только после «Утвердить все».\n'
+                      'Голосовой ввод (Whisper) пока не реализован.',
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -218,7 +225,7 @@ class _ChatPanelState extends State<ChatPanel> {
                                 },
                                 icon: const Icon(Icons.preview, size: 16),
                                 label: Text(
-                                  'Черновик (${m.draftBundle!.files.length})',
+                                  'Пакет ${m.draftBundle!.files.length} файл.',
                                 ),
                               ),
                             ],
@@ -242,7 +249,7 @@ class _ChatPanelState extends State<ChatPanel> {
                   maxLines: 5,
                   enabled: !c.chatBusy,
                   decoration: const InputDecoration(
-                    hintText: 'Сообщение агенту…',
+                    hintText: 'Идея для vault (можно несколько заметок)…',
                     border: OutlineInputBorder(),
                     isDense: true,
                   ),

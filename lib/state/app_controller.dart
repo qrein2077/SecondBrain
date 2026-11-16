@@ -124,6 +124,40 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// System prompt + live vault context (paths / open note).
+  /// Open note is advisory only — proposals stay vault-scoped / multi-file.
+  String buildChatSystemPrompt() {
+    final buf = StringBuffer(settings.systemPrompt.trim());
+    buf.writeln();
+    buf.writeln();
+    buf.writeln('## Контекст vault (приложение, не пользователь)');
+    buf.writeln(
+      'Работай со ВСЕМ vault. Не ограничивайся одной заметкой.',
+    );
+    if (selectedPath != null && selectedPath!.isNotEmpty) {
+      buf.writeln(
+        'В редакторе сейчас открыт (только справка): `$selectedPath`',
+      );
+    } else {
+      buf.writeln('В редакторе ничего не открыто.');
+    }
+    final files = markdownFiles;
+    buf.writeln('Файлов .md в vault: ${files.length}');
+    if (files.isEmpty) {
+      buf.writeln('(список пуст — можно предложить первые заметки)');
+    } else {
+      buf.writeln('Существующие пути (для [[wiki-links]] и update):');
+      final limit = 250;
+      for (final f in files.take(limit)) {
+        buf.writeln('- $f');
+      }
+      if (files.length > limit) {
+        buf.writeln('… и ещё ${files.length - limit}');
+      }
+    }
+    return buf.toString();
+  }
+
   Future<void> sendChat(String userText) async {
     final text = userText.trim();
     if (text.isEmpty || chatBusy) return;
@@ -134,10 +168,19 @@ class AppController extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Refresh vault list so proposals see current files.
+      if (vault != null) {
+        try {
+          markdownFiles = await vault!.listMarkdownFiles();
+        } catch (_) {
+          // Keep previous list; chat can still proceed.
+        }
+      }
+
       final reply = await _ollama.chat(
         baseUrl: settings.ollamaBaseUrl,
         model: settings.modelName,
-        systemPrompt: settings.systemPrompt,
+        systemPrompt: buildChatSystemPrompt(),
         history: chat
             .where((m) =>
                 m.role == ChatRole.user || m.role == ChatRole.assistant)
@@ -181,13 +224,15 @@ class AppController extends ChangeNotifier {
     if (draft == null || v == null) {
       throw StateError('Нет черновика или vault');
     }
+    final n = draft.files.length;
     final written = await v.approveDrafts(draft);
     pendingDraft = null;
     await refreshVault();
     chat.add(
       ChatMessage(
         role: ChatRole.system,
-        content: 'Утверждено и записано: ${written.join(', ')}',
+        content:
+            'Утверждён пакет ($n файл.): ${written.join(', ')}',
       ),
     );
     notifyListeners();
@@ -196,10 +241,12 @@ class AppController extends ChangeNotifier {
 
   void rejectPendingDraft() {
     if (pendingDraft == null) return;
+    final n = pendingDraft!.files.length;
     chat.add(
       ChatMessage(
         role: ChatRole.system,
-        content: 'Черновик отклонён. Vault не изменён.',
+        content:
+            'Пакет черновика отклонён ($n файл.). Vault не изменён.',
       ),
     );
     pendingDraft = null;

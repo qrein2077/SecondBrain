@@ -4,7 +4,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/chat_message.dart';
 import '../state/app_controller.dart';
 
-/// Preview multi-file note drafts before approve / reject.
+/// Preview multi-file note drafts before approve / reject (whole batch).
 class DraftPreviewScreen extends StatefulWidget {
   const DraftPreviewScreen({
     super.key,
@@ -38,13 +38,17 @@ class _DraftPreviewScreenState extends State<DraftPreviewScreen> {
       final written = await widget.controller.approvePendingDraft();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Записано: ${written.join(', ')}')),
+        SnackBar(
+          content: Text(
+            'Записан пакет (${written.length}): ${written.join(', ')}',
+          ),
+        ),
       );
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка записи: $e')),
+        SnackBar(content: Text('Ошибка записи пакета: $e')),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -60,79 +64,128 @@ class _DraftPreviewScreenState extends State<DraftPreviewScreen> {
   @override
   Widget build(BuildContext context) {
     final files = widget.bundle.files;
+    final n = files.length;
     return Scaffold(
       appBar: AppBar(
-        title: Text('Черновик (${files.length} файл(ов))'),
+        title: Text('Пакет черновика · $n файл(ов)'),
       ),
       body: Column(
         children: [
           Material(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: SizedBox(
-              height: 48,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                itemCount: files.length,
-                separatorBuilder: (context, index) => const SizedBox(width: 8),
-                itemBuilder: (context, i) {
-                  final f = files[i];
-                  final selected = i == _index;
-                  return ChoiceChip(
-                    label: Text('${f.op}: ${f.path}'),
-                    selected: selected,
-                    onSelected: (_) => setState(() => _index = i),
-                  );
-                },
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(
+                'Агент предлагает изменения по всему vault (не только открытая заметка). '
+                '«Утвердить все» запишет весь пакет; «Отклонить все» — ничего не изменит.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
           ),
           Expanded(
             child: Row(
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Text(
-                          'Markdown — ${_current.path}',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                      ),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(12),
-                          child: SelectableText(
-                            _current.content,
-                            style: const TextStyle(
-                              fontFamily: 'Consolas',
-                              fontFamilyFallback: ['Courier New', 'monospace'],
-                              fontSize: 13,
-                            ),
+                SizedBox(
+                  width: 280,
+                  child: Material(
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                          child: Text(
+                            'Файлы в пакете',
+                            style: Theme.of(context).textTheme.titleSmall,
                           ),
                         ),
-                      ),
-                    ],
+                        Expanded(
+                          child: ListView.builder(
+                            itemCount: files.length,
+                            itemBuilder: (context, i) {
+                              final f = files[i];
+                              final selected = i == _index;
+                              return ListTile(
+                                dense: true,
+                                selected: selected,
+                                leading: Icon(
+                                  f.op == 'update'
+                                      ? Icons.edit_note
+                                      : Icons.note_add_outlined,
+                                  size: 20,
+                                ),
+                                title: Text(
+                                  f.path,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                subtitle: Text(
+                                  f.op == 'update' ? 'update' : 'create',
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                onTap: () => setState(() => _index = i),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const VerticalDivider(width: 1),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                  child: Row(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Text(
-                          'Превью',
-                          style: Theme.of(context).textTheme.titleSmall,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Text(
+                                'Markdown — ${_current.path}',
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.all(12),
+                                child: SelectableText(
+                                  _current.content,
+                                  style: const TextStyle(
+                                    fontFamily: 'Consolas',
+                                    fontFamilyFallback: [
+                                      'Courier New',
+                                      'monospace',
+                                    ],
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                      const VerticalDivider(width: 1),
                       Expanded(
-                        child: Markdown(
-                          data: _current.content,
-                          selectable: true,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Text(
+                                'Превью',
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ),
+                            Expanded(
+                              child: Markdown(
+                                data: _current.content,
+                                selectable: true,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -148,14 +201,14 @@ class _DraftPreviewScreenState extends State<DraftPreviewScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    'Запись в vault только после «Утвердить». '
-                    'Файлы пишутся атомарно (temp → rename).',
+                    'Пакет: $n файл(ов). Каждый файл — temp→rename; '
+                    'сначала стейджинг всех, потом commit.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
                 TextButton(
                   onPressed: _busy ? null : _reject,
-                  child: const Text('Отклонить'),
+                  child: Text('Отклонить все ($n)'),
                 ),
                 const SizedBox(width: 8),
                 FilledButton(
@@ -166,7 +219,7 @@ class _DraftPreviewScreenState extends State<DraftPreviewScreen> {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('Утвердить'),
+                      : Text('Утвердить все ($n)'),
                 ),
               ],
             ),

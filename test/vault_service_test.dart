@@ -36,7 +36,7 @@ void main() {
     expect(() => vault.resolveSafe('../outside.md'), throwsArgumentError);
   });
 
-  test('atomic approve writes files', () async {
+  test('atomic approve writes multi-file batch', () async {
     final vault = VaultService(vaultRoot: tmp.path);
     final written = await vault.approveDrafts(
       const NoteDraftBundle(
@@ -49,13 +49,39 @@ void main() {
           NoteDraft(
             path: 'Inbox/world.md',
             op: 'create',
-            content: '# World',
+            content: '# World\n\n[[hello]]',
+          ),
+          NoteDraft(
+            path: 'Topics/index.md',
+            op: 'create',
+            content: '# Index\n\n[[hello]] [[world]]',
           ),
         ],
       ),
     );
-    expect(written, hasLength(2));
-    final hello = await File(p.join(tmp.path, 'Inbox', 'hello.md')).readAsString();
+    expect(written, hasLength(3));
+    final hello =
+        await File(p.join(tmp.path, 'Inbox', 'hello.md')).readAsString();
     expect(hello.contains('[[world]]'), isTrue);
+    expect(
+      await File(p.join(tmp.path, 'Topics', 'index.md')).exists(),
+      isTrue,
+    );
+  });
+
+  test('staging failure leaves vault untouched', () async {
+    final vault = VaultService(vaultRoot: tmp.path);
+    expect(
+      () => vault.approveDrafts(
+        const NoteDraftBundle(
+          files: [
+            NoteDraft(path: 'ok.md', op: 'create', content: '# ok'),
+            NoteDraft(path: '../escape.md', op: 'create', content: 'bad'),
+          ],
+        ),
+      ),
+      throwsArgumentError,
+    );
+    expect(await File(p.join(tmp.path, 'ok.md')).exists(), isFalse);
   });
 }

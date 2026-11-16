@@ -174,6 +174,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Агент работает со всем vault (пакет create/update + [[wiki-links]]), '
+            'не только с открытой заметкой. «Сбросить» вернёт актуальный дефолт. '
+            'Приложение дополнительно подставляет список .md в контекст чата.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: _promptCtrl,

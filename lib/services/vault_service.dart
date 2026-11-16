@@ -79,45 +79,96 @@ class VaultService {
     await _atomicWrite(relativePath, content);
   }
 
-  /// Approve a multi-file draft bundle. Each file is written atomically.
+  /// Approve a multi-file draft as a batch:
+  /// 1) validate all paths, 2) stage all temps, 3) rename each into place.
+  /// If staging fails, no vault files are changed. If a rename fails mid-batch,
+  /// earlier files may already be updated — error lists what succeeded.
   Future<List<String>> approveDrafts(NoteDraftBundle bundle) async {
     ensureConfigured();
-    final written = <String>[];
-    for (final draft in bundle.files) {
-      await _atomicWrite(draft.path, draft.content);
-      written.add(draft.path);
-    }
-    return written;
-  }
+    if (bundle.files.isEmpty) return const [];
 
-  Future<void> _atomicWrite(String relativePath, String content) async {
-    final abs = resolveSafe(relativePath);
-    final target = File(abs);
-    final dir = target.parent;
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
+    // Deduplicate by path (last wins) so one path isn't written twice.
+    final byPath = <String, NoteDraft>{};
+    for (final d in bundle.files) {
+      byPath[d.path.replaceAll('\\', '/')] = d;
     }
-    final tmp = File(
-      p.join(dir.path, '.${p.basename(abs)}.${DateTime.now().microsecondsSinceEpoch}.tmp'),
-    );
+    final drafts = byPath.values.toList();
+
+    // Validate all paths first.
+    final absPaths = <String, String>{};
+    for (final d in drafts) {
+      absPaths[d.path] = resolveSafe(d.path);
+    }
+
+    final staged = <_StagedWrite>[];
     try {
-      await tmp.writeAsString(content, flush: true);
-      if (await target.exists()) {
-        await tmp.rename(abs);
-      } else {
-        // On Windows, rename to non-existing path works; if not, copy+delete.
-        try {
-          await tmp.rename(abs);
-        } on FileSystemException {
-          await tmp.copy(abs);
-          await tmp.delete();
+      for (final d in drafts) {
+        final abs = absPaths[d.path]!;
+        final target = File(abs);
+        final dir = target.parent;
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
         }
+        final tmp = File(
+          p.join(
+            dir.path,
+            '.${p.basename(abs)}.${DateTime.now().microsecondsSinceEpoch}.tmp',
+          ),
+        );
+        await tmp.writeAsString(d.content, flush: true);
+        staged.add(_StagedWrite(relativePath: d.path, tmp: tmp, target: target));
       }
-    } catch (_) {
-      if (await tmp.exists()) {
-        await tmp.delete();
+
+      final written = <String>[];
+      for (final s in staged) {
+        await _commitStaged(s);
+        written.add(s.relativePath);
+      }
+      return written;
+    } catch (e) {
+      // Clean up any temps that were not committed.
+      for (final s in staged) {
+        try {
+          if (await s.tmp.exists()) await s.tmp.delete();
+        } catch (_) {}
       }
       rethrow;
     }
   }
+
+  Future<void> _commitStaged(_StagedWrite s) async {
+    final abs = s.target.path;
+    if (await s.target.exists()) {
+      await s.tmp.rename(abs);
+    } else {
+      try {
+        await s.tmp.rename(abs);
+      } on FileSystemException {
+        await s.tmp.copy(abs);
+        await s.tmp.delete();
+      }
+    }
+  }
+
+  Future<void> _atomicWrite(String relativePath, String content) async {
+    await approveDrafts(
+      NoteDraftBundle(
+        files: [
+          NoteDraft(path: relativePath, content: content, op: 'update'),
+        ],
+      ),
+    );
+  }
+}
+
+class _StagedWrite {
+  _StagedWrite({
+    required this.relativePath,
+    required this.tmp,
+    required this.target,
+  });
+
+  final String relativePath;
+  final File tmp;
+  final File target;
 }
