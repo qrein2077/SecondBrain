@@ -5,27 +5,33 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:whisper_ggml/whisper_ggml.dart';
 
+import '../models/stt_transcript.dart';
+import '../models/whisper_size.dart';
+import 'stt_confidence.dart';
+import 'wav_silence_trim.dart';
+
 /// Local Whisper (whisper.cpp via whisper_ggml) for Windows desktop.
 /// Android is intentionally unsupported in MVP (UI hides the mic).
 class WhisperSttService {
   WhisperSttService({
     AudioRecorder? recorder,
     WhisperController? whisper,
-    this.model = WhisperModel.base,
+    this.size = WhisperSize.small,
   })  : _recorder = recorder ?? AudioRecorder(),
         _whisper = whisper ?? WhisperController();
-
-  /// Prefer `base` — small enough for light PC load, usable for Russian.
-  final WhisperModel model;
 
   final AudioRecorder _recorder;
   final WhisperController _whisper;
 
+  WhisperSize size;
+  WhisperModel? _readyModel;
   bool _recording = false;
   String? _recordPath;
-  bool _modelReady = false;
 
   bool get isRecording => _recording;
+
+  /// Always force Russian for SecondBrain MVP.
+  static const forcedLang = 'ru';
 
   /// Windows (and Linux for local dev). Android/iOS/web: hide mic for now.
   static bool get isSupported {
@@ -37,12 +43,21 @@ class WhisperSttService {
     }
   }
 
+  void setSize(WhisperSize next) {
+    if (size == next) return;
+    size = next;
+    if (_readyModel != next.ggmlModel) {
+      _readyModel = null;
+    }
+  }
+
   Future<bool> hasMicPermission() => _recorder.hasPermission();
 
   Future<void> ensureModel() async {
-    if (_modelReady) return;
+    final model = size.ggmlModel;
+    if (_readyModel == model) return;
     await _whisper.downloadModel(model);
-    _modelReady = true;
+    _readyModel = model;
   }
 
   Future<void> startRecording() async {
@@ -62,15 +77,21 @@ class WhisperSttService {
         encoder: AudioEncoder.wav,
         sampleRate: 16000,
         numChannels: 1,
+        bitRate: 256000,
       ),
       path: _recordPath!,
     );
     _recording = true;
   }
 
-  /// Stops recording and runs local Whisper. Returns trimmed transcript.
-  Future<String> stopAndTranscribe({String lang = 'ru'}) async {
-    if (!_recording) return '';
+  /// Stops recording, lightly trims silence, runs Whisper with [forcedLang].
+  ///
+  /// Returns [SttTranscript] with heuristic confidence (whisper_ggml has no
+  /// token probabilities — we use word timestamps + text heuristics).
+  Future<SttTranscript> stopAndTranscribe() async {
+    if (!_recording) {
+      return const SttTranscript(text: '', words: []);
+    }
     String? path;
     try {
       path = await _recorder.stop();
@@ -81,14 +102,40 @@ class WhisperSttService {
     if (audioPath == null || audioPath.isEmpty) {
       throw StateError('Запись не сохранена.');
     }
+
+    try {
+      await WavSilenceTrim.trimFile(audioPath);
+    } catch (_) {}
+
     await ensureModel();
     final result = await _whisper.transcribe(
-      model: model,
+      model: size.ggmlModel,
       audioPath: audioPath,
-      lang: lang,
+      lang: forcedLang,
+      withSegments: true,
+      splitOnWord: true,
+      suppressNonSpeechTokens: true,
     );
-    final text = result?.transcription.text.trim() ?? '';
-    return text;
+
+    final full = result?.transcription.text.trim() ?? '';
+    final segs = result?.transcription.segments;
+    if (segs == null || segs.isEmpty) {
+      return SttConfidenceHeuristics.fromPlainText(full);
+    }
+
+    final mapped = segs
+        .map(
+          (s) => (
+            text: s.text,
+            fromMs: s.fromTs.inMilliseconds,
+            toMs: s.toTs.inMilliseconds,
+          ),
+        )
+        .toList();
+    return SttConfidenceHeuristics.fromSegments(
+      fullText: full,
+      segments: mapped,
+    );
   }
 
   Future<void> cancelRecording() async {

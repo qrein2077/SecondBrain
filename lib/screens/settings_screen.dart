@@ -6,6 +6,7 @@ import '../models/agent_preset.dart';
 import '../models/app_settings.dart';
 import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
+import '../models/whisper_size.dart';
 import '../services/update_checker.dart';
 import '../state/app_controller.dart';
 
@@ -32,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late LlmMode _llmMode;
   late CloudProvider _cloudProvider;
   late bool _qaOnly;
+  late WhisperSize _whisperSize;
   bool _saving = false;
   bool _obscureGemini = true;
   bool _obscureGroq = true;
@@ -57,6 +59,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _llmMode = s.llmMode;
     _cloudProvider = s.cloudProvider;
     _qaOnly = s.qaOnly;
+    _whisperSize = s.whisperSize;
   }
 
   @override
@@ -113,6 +116,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           llmMode: _llmMode,
           cloudProvider: _cloudProvider,
           qaOnly: _qaOnly,
+          whisperSize: _whisperSize,
           systemPrompt: _promptCtrl.text.trim().isEmpty
               ? AppSettings.defaultSystemPrompt
               : _promptCtrl.text,
@@ -404,12 +408,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
             value: _qaOnly,
             onChanged: (v) => setState(() => _qaOnly = v),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
+          const Text(
+            'Голосовой ввод (Whisper, Windows)',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          ),
+          const SizedBox(height: 4),
           Text(
-            'Голосовой ввод (Windows): кнопка микрофона в чате → локальный '
-            'Whisper (модель base, ggml). При первом использовании модель '
-            'скачается (~140 МБ). Android: пока скрыто.',
+            'Локальный whisper.cpp (ggml). Язык всегда ru. '
+            'Модель скачивается при первом использовании выбранного размера. '
+            'Android: пока скрыто.',
             style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<WhisperSize>(
+            // ignore: deprecated_member_use
+            value: _whisperSize,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              labelText: 'Размер модели Whisper',
+            ),
+            items: [
+              for (final s in WhisperSize.values)
+                DropdownMenuItem(value: s, child: Text(s.labelRu)),
+            ],
+            onChanged: (v) {
+              if (v != null) setState(() => _whisperSize = v);
+            },
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _whisperSize == WhisperSize.medium
+                ? '⚠ medium: ${_whisperSize.downloadHint}. '
+                    'На слабом ПК лучше small.'
+                : _whisperSize.downloadHint,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: _whisperSize == WhisperSize.medium
+                      ? Theme.of(context).colorScheme.error
+                      : null,
+                ),
           ),
           const SizedBox(height: 24),
           const Text(

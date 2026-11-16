@@ -8,6 +8,7 @@ import '../models/agent_preset.dart';
 import '../models/app_settings.dart';
 import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
+import '../models/whisper_size.dart';
 
 /// Loads/persists [AppSettings]. Cloud API keys live in secure storage only.
 class SettingsStore extends ChangeNotifier {
@@ -23,6 +24,7 @@ class SettingsStore extends ChangeNotifier {
   static const _kLlmMode = 'llmMode';
   static const _kCloudProvider = 'cloudProvider';
   static const _kQaOnly = 'qaOnly';
+  static const _kWhisperSize = 'whisperSize';
   static const _kSystemPrompt = 'systemPrompt';
   static const _kPromptVersion = 'systemPromptVersion';
   static const _kAgentPresets = 'agentPresetsJson';
@@ -124,6 +126,16 @@ class SettingsStore extends ChangeNotifier {
       await prefs.setString(_kGroqModel, groqModel);
     }
 
+    // Whisper: older builds hard-coded `base` and never stored a key.
+    // Missing key → migrate to default `small`. Explicit later picks are kept.
+    WhisperSize whisperSize;
+    if (!prefs.containsKey(_kWhisperSize)) {
+      whisperSize = AppSettings.defaultWhisperSize;
+      await prefs.setString(_kWhisperSize, whisperSize.storageValue);
+    } else {
+      whisperSize = WhisperSizeX.fromStorage(prefs.getString(_kWhisperSize));
+    }
+
     _settings = AppSettings(
       vaultPath: prefs.getString(_kVaultPath) ?? '',
       ollamaBaseUrl:
@@ -137,6 +149,7 @@ class SettingsStore extends ChangeNotifier {
       cloudProvider:
           CloudProviderX.fromStorage(prefs.getString(_kCloudProvider)),
       qaOnly: prefs.getBool(_kQaOnly) ?? false,
+      whisperSize: whisperSize,
       systemPrompt: prompt,
     );
 
@@ -291,6 +304,7 @@ class SettingsStore extends ChangeNotifier {
     await prefs.setString(_kLlmMode, next.llmMode.storageValue);
     await prefs.setString(_kCloudProvider, next.cloudProvider.storageValue);
     await prefs.setBool(_kQaOnly, next.qaOnly);
+    await prefs.setString(_kWhisperSize, next.whisperSize.storageValue);
     await prefs.setString(_kSystemPrompt, next.systemPrompt);
     await prefs.setInt(_kPromptVersion, AppSettings.currentPromptVersion);
 

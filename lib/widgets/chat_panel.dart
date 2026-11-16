@@ -3,9 +3,12 @@ import 'package:material_ui/material_ui.dart';
 import '../models/chat_message.dart';
 import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
+import '../models/stt_transcript.dart';
+import '../models/whisper_size.dart';
 import '../screens/draft_preview_screen.dart';
 import '../services/whisper_stt_service.dart';
 import '../state/app_controller.dart';
+import 'stt_review_strip.dart';
 import 'wiki_text.dart';
 
 class ChatPanel extends StatefulWidget {
@@ -20,15 +23,28 @@ class ChatPanel extends StatefulWidget {
 class _ChatPanelState extends State<ChatPanel> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  final _stt = WhisperSttService();
+  late final WhisperSttService _stt;
   bool _recording = false;
   bool _transcribing = false;
   String? _sttError;
+  SttTranscript? _sttReview;
 
   AppController get c => widget.controller;
 
   @override
+  void initState() {
+    super.initState();
+    _stt = WhisperSttService(size: c.settings.whisperSize);
+    c.addListener(_syncWhisperSize);
+  }
+
+  void _syncWhisperSize() {
+    _stt.setSize(c.settings.whisperSize);
+  }
+
+  @override
   void dispose() {
+    c.removeListener(_syncWhisperSize);
     _input.dispose();
     _scroll.dispose();
     _stt.dispose();
@@ -68,18 +84,24 @@ class _ChatPanelState extends State<ChatPanel> {
           _recording = false;
           _transcribing = true;
         });
-        final text = await _stt.stopAndTranscribe(lang: 'ru');
+        final transcript = await _stt.stopAndTranscribe();
         if (!mounted) return;
-        if (text.isNotEmpty) {
+        if (transcript.text.isNotEmpty) {
+          setState(() => _sttReview = transcript);
+          // Also seed the input so user can edit immediately.
           final cur = _input.text;
-          _input.text = cur.trim().isEmpty ? text : '$cur $text';
-          _input.selection = TextSelection.collapsed(offset: _input.text.length);
+          _input.text = cur.trim().isEmpty
+              ? transcript.text
+              : '$cur ${transcript.text}';
+          _input.selection =
+              TextSelection.collapsed(offset: _input.text.length);
         } else {
           setState(() => _sttError = 'Пустая расшифровка — попробуйте ещё раз.');
         }
       } else {
         setState(() => _transcribing = true);
-        // Warm model on first use (download ggml-base.bin once).
+        // Warm model on first use (download ggml-{size}.bin once per size).
+        _stt.setSize(c.settings.whisperSize);
         await _stt.ensureModel();
         await _stt.startRecording();
         if (!mounted) return;
@@ -176,14 +198,14 @@ class _ChatPanelState extends State<ChatPanel> {
       return 'Режим «Только ответы»: спросите, например, '
           '«что я уже знаю по физике» — агент ответит по заметкам vault '
           '(RAG-lite), не отправит вас открывать файлы сами.\n'
-          '${WhisperSttService.isSupported ? 'Микрофон: локальный Whisper (base).\n' : ''}'
+          '${WhisperSttService.isSupported ? 'Микрофон: локальный Whisper (${c.settings.whisperSize.shortLabel}, ru).\n' : ''}'
           'Для правок заметок переключите на «Может править vault».';
     }
     return 'Напишите идею или вопрос.\n'
         'Вопросы о знаниях отвечаются по выдержкам из vault; '
         'для правок агент сначала уточнит, затем предложит пакет .md.\n'
         'Запись в vault — только после «Утвердить все».\n'
-        '${WhisperSttService.isSupported ? 'Микрофон → Whisper → текст в поле ввода.' : ''}';
+        '${WhisperSttService.isSupported ? 'Микрофон → Whisper (${c.settings.whisperSize.shortLabel}, ru) → поле ввода.' : ''}';
   }
 
   @override
@@ -470,6 +492,24 @@ class _ChatPanelState extends State<ChatPanel> {
               'Идёт запись… Нажмите микрофон ещё раз, чтобы расшифровать.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+          ),
+        if (_sttReview != null)
+          SttReviewStrip(
+            transcript: _sttReview!,
+            onAccept: () {
+              // Text already in input; just dismiss strip.
+              setState(() => _sttReview = null);
+            },
+            onDiscard: () {
+              final t = _sttReview!.text;
+              final cur = _input.text;
+              if (cur.endsWith(t)) {
+                _input.text = cur.substring(0, cur.length - t.length).trimRight();
+                _input.selection =
+                    TextSelection.collapsed(offset: _input.text.length);
+              }
+              setState(() => _sttReview = null);
+            },
           ),
         const Divider(height: 1),
         Padding(

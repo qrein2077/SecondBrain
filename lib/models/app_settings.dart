@@ -1,5 +1,6 @@
 import 'cloud_provider.dart';
 import 'llm_mode.dart';
+import 'whisper_size.dart';
 
 /// Persistent app settings for SecondBrain MVP.
 /// API keys are NOT stored here — see secure storage in [SettingsStore].
@@ -14,6 +15,7 @@ class AppSettings {
     this.llmMode = LlmMode.local,
     this.cloudProvider = CloudProvider.groq,
     this.qaOnly = false,
+    this.whisperSize = WhisperSize.small,
     this.systemPrompt = AppSettings.defaultSystemPrompt,
   });
 
@@ -38,7 +40,15 @@ class AppSettings {
   /// When false: may edit vault after clarifying questions + user Approve.
   final bool qaOnly;
 
+  /// Local Whisper ggml size (default small; language forced to ru).
+  final WhisperSize whisperSize;
+
   final String systemPrompt;
+
+  static const defaultWhisperSize = WhisperSize.small;
+
+  /// Previous hardcoded Whisper default — migrate AppData when still this value.
+  static const legacyDefaultWhisperSize = WhisperSize.base;
 
   /// OpenAI-compat model id (no `models/` prefix).
   static const defaultGeminiModel = 'gemini-3.8-flash';
@@ -262,6 +272,7 @@ class AppSettings {
     LlmMode? llmMode,
     CloudProvider? cloudProvider,
     bool? qaOnly,
+    WhisperSize? whisperSize,
     String? systemPrompt,
   }) {
     return AppSettings(
@@ -274,6 +285,7 @@ class AppSettings {
       llmMode: llmMode ?? this.llmMode,
       cloudProvider: cloudProvider ?? this.cloudProvider,
       qaOnly: qaOnly ?? this.qaOnly,
+      whisperSize: whisperSize ?? this.whisperSize,
       systemPrompt: systemPrompt ?? this.systemPrompt,
     );
   }
