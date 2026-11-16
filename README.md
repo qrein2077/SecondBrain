@@ -4,7 +4,7 @@ Local-first AI companion for an Obsidian vault (Windows + Android).
 Chat with one universal agent via **local Ollama only** — no cloud LLM APIs.  
 The app **never writes** to the vault until you **Approve** a draft preview. Remotely Save is left alone.
 
-**English (short):** Install Git + Flutter stable + Visual Studio 2022 (“Desktop development with C++”) + Ollama → `ollama pull qwen2.5:7b` → get this repo (PR #1 until merged) → `flutter pub get` → `flutter run -d windows` → Settings: vault path, `http://127.0.0.1:11434`, model `qwen2.5:7b`. Full steps in Russian below.
+**English (short):** Preferred — download `SecondBrain-Setup-*.exe` from [GitHub Actions](https://github.com/qrein2077/SecondBrain/actions/workflows/windows-installer.yml) (artifact **SecondBrain-Setup-Windows**), run it, then install Ollama + `ollama pull qwen2.5:7b`. Update = run the newer setup.exe (settings in AppData survive). Advanced — build from source with Flutter (Russian steps below).
 
 ---
 
@@ -16,12 +16,78 @@ The app **never writes** to the vault until you **Approve** a draft preview. Rem
 - Ollama (OpenAI-compatible API), модель по умолчанию `qwen2.5:7b`
 - Предложение создать/обновить одну или несколько связанных заметок (`[[wiki-links]]`) → превью → **Утвердить / Отклонить** → атомарная запись только после **Утвердить**
 - Базовые русские подписи в UI
+- Windows-установщик (Inno Setup) + сборка в GitHub Actions
 
 **Пока не входит:** Whisper/STT, Tailscale, RAG, мульти-агенты, полировка Android.
 
 ---
 
-## Подробная установка на Windows (пошагово)
+## Установка через установщик (рекомендуется)
+
+Обычному пользователю **не нужно** ставить Flutter и каждый раз собирать проект. Сборка делается в CI (или один раз у разработчика); вы только скачиваете и запускаете новый setup.
+
+### Честно про обновления
+
+| Кто | Что делает |
+|-----|------------|
+| **Вы (день за днём)** | Скачиваете новый `SecondBrain-Setup-*.exe` → запускаете → приложение обновляется в Program Files (или выбранной папке). Flutter не нужен. |
+| **CI / разработчик** | На каждый push в PR/`main` GitHub Actions на Windows собирает Flutter Release + Inno Setup и кладёт артефакт. |
+
+### 1. Ollama (всё ещё нужна локально)
+
+Установщик SecondBrain **не** включает нейросеть — только UI-клиент.
+
+1. Установите [Ollama для Windows](https://ollama.com)
+2. Скачайте модель:
+
+```bat
+ollama pull qwen2.5:7b
+```
+
+3. Проверьте: `http://127.0.0.1:11434` отвечает.
+
+### 2. Скачать установщик из GitHub Actions
+
+1. Откройте workflow: [Windows installer](https://github.com/qrein2077/SecondBrain/actions/workflows/windows-installer.yml)
+2. Выберите **успешный** прогон (зелёная галочка) для нужной ветки / PR #1
+3. Внизу страницы прогона → **Artifacts** → **SecondBrain-Setup-Windows**
+4. Распакуйте zip артефакта → запустите `SecondBrain-Setup-1.0.0.exe` (версия из `pubspec.yaml`)
+
+Пока PR #1 не влит, берите прогон с ветки `cursor/windows-vault-chat-shell-77ba` / pull request. После merge — прогоны с `main`.
+
+> Артефакты Actions хранятся ограниченное время (сейчас ~30 дней). Позже можно публиковать GitHub Releases с тем же `.exe`.
+
+### 3. Установка и обновление
+
+1. Запустите setup → при желании смените папку (по умолчанию под Program Files / user install).
+2. Язык мастера: English / **Русский**.
+3. **Обновление:** скачайте новый setup и установите поверх (тот же `AppId`). Старую версию вручную сносить не обязательно.
+4. **Настройки не сбрасываются** при переустановке: vault path, URL Ollama, модель и system prompt лежат в  
+   `%APPDATA%\com.qrein.secondbrain\SecondBrain\`  
+   (Flutter `shared_preferences`). Деинсталлятор **не** удаляет AppData.
+
+### 4. Первый запуск после установки
+
+1. Запустите **SecondBrain** из меню Пуск.
+2. **Настройки** (шестерёнка): папка vault → URL `http://127.0.0.1:11434` → модель `qwen2.5:7b` → **Сохранить**.
+3. Чат и редактор — как в MVP. Запись в vault только после **Утвердить** черновик.
+
+### Сборка установщика у себя (опционально)
+
+Нужны Flutter + VS 2022 Desktop C++ + [Inno Setup 6](https://jrsoftware.org/isinfo.php) (или `choco install innosetup`).
+
+```powershell
+.\scripts\windows\build_installer.ps1
+```
+
+Результат: `dist\SecondBrain-Setup-<version>.exe`  
+Скрипт: [`scripts/windows/build_installer.ps1`](scripts/windows/build_installer.ps1) · ISS: [`installer/windows/SecondBrain.iss`](installer/windows/SecondBrain.iss) · CI: [`.github/workflows/windows-installer.yml`](.github/workflows/windows-installer.yml)
+
+---
+
+## Сборка из исходников (для разработчиков)
+
+Если хотите править код и запускать без установщика — ставьте toolchain ниже. Для простого использования достаточно раздела **«Установка через установщик»**.
 
 ### 0. Что понадобится
 
@@ -299,15 +365,22 @@ ollama list
 - Закройте антивирус на время первой сборки, если он блокирует `build\windows`.
 - `flutter clean` → `flutter pub get` → `flutter run -d windows`.
 
+### Установщик / настройки пропали
+
+- Настройки должны жить в `%APPDATA%\com.qrein.secondbrain\SecondBrain\` — переустановка setup **не** должна их стирать.
+- Если «всё с нуля» после смены пользователя Windows или очистки Roaming — заново укажите vault в Настройках.
+- Антивирус иногда блокирует свежий setup из Actions (неподписанный). Разрешите файл или «Разблокировать» в свойствах `.exe`.
+
 ### После merge
 
-Когда [#1](https://github.com/qrein2077/SecondBrain/pull/1) вольют в `main`, больше не нужен `git fetch origin pull/1/head:pr-1` — достаточно `git clone` / `git pull` с `main` (см. выше).
+Когда [#1](https://github.com/qrein2077/SecondBrain/pull/1) вольют в `main`, больше не нужен `git fetch origin pull/1/head:pr-1` — достаточно `git clone` / `git pull` с `main` (см. выше). Установщик берите из Actions на `main`.
 
 ---
 
 ## Заметки для разработки
 
-- Репозиторий можно править на Linux, но **Windows `.exe` собирается на Windows** (или Windows CI).
+- Репозиторий можно править на Linux, но **Windows Release + Inno Setup** собираются на **Windows** (локально или GitHub Actions `windows-latest`).
+- Установщик: `installer/windows/SecondBrain.iss`, скрипт `scripts/windows/build_installer.ps1`, workflow `.github/workflows/windows-installer.yml`.
 - Android-таргет включён (`android/`); полировка телефона и SAF — позже.
 - Формат предложения заметок агентом описан в system prompt (`<<<PROPOSE_NOTES>>>` … `<<<END_PROPOSE_NOTES>>>`).
 
