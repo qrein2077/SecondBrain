@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
+import '../services/wiki_link.dart';
 import '../state/app_controller.dart';
+import 'wiki_text.dart';
 
 class NoteEditor extends StatefulWidget {
   const NoteEditor({super.key, required this.controller});
@@ -156,10 +158,33 @@ class _NoteEditorState extends State<NoteEditor> {
                       ),
                     ),
                     Expanded(
-                      child: Markdown(
-                        data: c.editorText.isEmpty ? '_пусто_' : c.editorText,
-                        selectable: true,
-                      ),
+                      child: c.editorText.contains('[[')
+                          ? SingleChildScrollView(
+                              padding: const EdgeInsets.all(12),
+                              child: WikiText(
+                                text: c.editorText.isEmpty
+                                    ? '_пусто_'
+                                    : c.editorText,
+                                controller: c,
+                              ),
+                            )
+                          : Markdown(
+                              data: c.editorText.isEmpty
+                                  ? '_пусто_'
+                                  : c.editorText,
+                              selectable: true,
+                              onTapLink: (text, href, title) {
+                                if (href == null) return;
+                                final target = href
+                                    .replaceAll('%20', ' ')
+                                    .replaceAll('.md', '');
+                                final path = WikiLink.resolve(
+                                  target,
+                                  c.markdownFiles,
+                                );
+                                if (path != null) c.openNote(path);
+                              },
+                            ),
                     ),
                   ],
                 ),

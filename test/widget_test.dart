@@ -13,6 +13,6 @@ void main() {
 
     await tester.pumpWidget(SecondBrainApp(controller: controller));
     expect(find.text('SecondBrain'), findsOneWidget);
-    expect(find.text('Чат с агентом'), findsOneWidget);
+    expect(find.text('Чат'), findsOneWidget);
   });
 }

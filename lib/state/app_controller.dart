@@ -1,10 +1,13 @@
 import 'package:flutter/foundation.dart';
 
+import '../models/agent_preset.dart';
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
+import '../models/chat_session.dart';
 import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
 import '../services/agent_parser.dart';
+import '../services/chat_session_store.dart';
 import '../services/openai_compat_client.dart';
 import '../services/settings_store.dart';
 import '../services/vault_retriever.dart';
@@ -44,11 +47,14 @@ class AppController extends ChangeNotifier {
   AppController({
     SettingsStore? settingsStore,
     OpenAiCompatClient? llmClient,
+    ChatSessionStore? sessionStore,
   })  : settingsStore = settingsStore ?? SettingsStore(),
-        _llm = llmClient ?? OpenAiCompatClient();
+        _llm = llmClient ?? OpenAiCompatClient(),
+        _sessions = sessionStore ?? ChatSessionStore();
 
   final SettingsStore settingsStore;
   final OpenAiCompatClient _llm;
+  final ChatSessionStore _sessions;
 
   List<String> markdownFiles = [];
   String? selectedPath;
@@ -57,7 +63,8 @@ class AppController extends ChangeNotifier {
   bool loadingVault = false;
   String? vaultError;
 
-  final List<ChatMessage> chat = [];
+  final List<ChatSession> sessions = [];
+  ChatSession? activeSession;
   bool chatBusy = false;
   String? chatError;
   bool ollamaOnline = false;
@@ -72,6 +79,35 @@ class AppController extends ChangeNotifier {
   final VaultRetriever _retriever = const VaultRetriever();
 
   AppSettings get settings => settingsStore.settings;
+
+  List<ChatMessage> get chat =>
+      activeSession?.messages ?? const <ChatMessage>[];
+
+  List<AgentPreset> get agentPresets => settingsStore.presets;
+  String get activePresetId => settingsStore.activePresetId;
+
+  /// Human-readable active LLM path for status bar.
+  String get activeRouteLabel {
+    switch (settings.llmMode) {
+      case LlmMode.local:
+        return 'Локально · Ollama';
+      case LlmMode.cloud:
+        return 'Облако · ${settings.cloudProvider.shortLabel}';
+      case LlmMode.auto:
+        return 'Авто · Ollama→${settings.cloudProvider.shortLabel}';
+    }
+  }
+
+  bool get activeRouteOnline {
+    switch (settings.llmMode) {
+      case LlmMode.local:
+        return ollamaOnline;
+      case LlmMode.cloud:
+        return cloudReachable;
+      case LlmMode.auto:
+        return ollamaOnline || cloudReachable;
+    }
+  }
 
   /// Kept for older UI bindings.
   bool get geminiReachable =>
@@ -98,8 +134,108 @@ class AppController extends ChangeNotifier {
   Future<void> init() async {
     await settingsStore.load();
     settingsStore.addListener(_onSettingsChanged);
+    await _loadSessions();
     await refreshVault();
     await checkBackends();
+  }
+
+  Future<void> _loadSessions() async {
+    sessions
+      ..clear()
+      ..addAll(await _sessions.loadAll());
+    final activeId = await _sessions.loadActiveId();
+    if (sessions.isEmpty) {
+      final s = ChatSession.newSession(title: 'Чат 1');
+      sessions.add(s);
+      activeSession = s;
+      await _sessions.save(s);
+      await _sessions.saveActiveId(s.id);
+    } else {
+      activeSession = sessions.cast<ChatSession?>().firstWhere(
+            (s) => s!.id == activeId,
+            orElse: () => sessions.first,
+          );
+      await _sessions.saveActiveId(activeSession!.id);
+    }
+    notifyListeners();
+  }
+
+  Future<void> _persistActiveSession() async {
+    final s = activeSession;
+    if (s == null) return;
+    await _sessions.save(s);
+    // Keep list order by updatedAt.
+    sessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  }
+
+  Future<void> createSession({String? title}) async {
+    await _persistActiveSession();
+    final s = ChatSession.newSession(title: title);
+    sessions.insert(0, s);
+    activeSession = s;
+    pendingDraft = null;
+    lastRetrievalSources = [];
+    chatError = null;
+    await _sessions.save(s);
+    await _sessions.saveActiveId(s.id);
+    notifyListeners();
+  }
+
+  Future<void> switchSession(String id) async {
+    if (activeSession?.id == id) return;
+    await _persistActiveSession();
+    final next = sessions.cast<ChatSession?>().firstWhere(
+          (s) => s!.id == id,
+          orElse: () => null,
+        );
+    if (next == null) return;
+    activeSession = next;
+    pendingDraft = null;
+    lastRetrievalSources = [];
+    chatError = null;
+    await _sessions.saveActiveId(id);
+    notifyListeners();
+  }
+
+  Future<void> renameSession(String id, String title) async {
+    final t = title.trim();
+    if (t.isEmpty) return;
+    final s = sessions.cast<ChatSession?>().firstWhere(
+          (x) => x!.id == id,
+          orElse: () => null,
+        );
+    if (s == null) return;
+    s.title = t;
+    await _sessions.save(s);
+    notifyListeners();
+  }
+
+  Future<void> deleteSession(String id) async {
+    if (sessions.length <= 1) {
+      // Keep one empty session.
+      final only = sessions.first;
+      only.messages.clear();
+      only.title = 'Чат 1';
+      activeSession = only;
+      pendingDraft = null;
+      await _sessions.save(only);
+      await _sessions.saveActiveId(only.id);
+      notifyListeners();
+      return;
+    }
+    sessions.removeWhere((s) => s.id == id);
+    await _sessions.delete(id);
+    if (activeSession?.id == id) {
+      activeSession = sessions.first;
+      pendingDraft = null;
+      await _sessions.saveActiveId(activeSession!.id);
+    }
+    notifyListeners();
+  }
+
+  Future<void> selectAgentPreset(String id) async {
+    await settingsStore.selectPreset(id);
+    notifyListeners();
   }
 
   void _onSettingsChanged() {
@@ -347,10 +483,19 @@ class AppController extends ChangeNotifier {
     final text = userText.trim();
     if (text.isEmpty || chatBusy) return;
 
-    chat.add(ChatMessage(role: ChatRole.user, content: text));
+    if (activeSession == null) {
+      await createSession();
+    }
+    final session = activeSession!;
+    session.messages.add(ChatMessage(role: ChatRole.user, content: text));
+    if (session.messages.where((m) => m.role == ChatRole.user).length == 1 &&
+        session.title.startsWith('Чат')) {
+      session.title = text.length > 40 ? '${text.substring(0, 40)}…' : text;
+    }
     chatBusy = true;
     chatError = null;
     notifyListeners();
+    await _persistActiveSession();
 
     try {
       if (vault != null) {
@@ -376,7 +521,7 @@ class AppController extends ChangeNotifier {
 
       final result = await _chatWithRouting(
         systemPrompt: buildChatSystemPrompt(hits: hits),
-        history: chat
+        history: session.messages
             .where((m) =>
                 m.role == ChatRole.user || m.role == ChatRole.assistant)
             .toList(),
@@ -386,7 +531,7 @@ class AppController extends ChangeNotifier {
         result.content,
         allowDrafts: !settings.qaOnly,
       );
-      chat.add(
+      session.messages.add(
         ChatMessage(
           role: ChatRole.assistant,
           content: parsed.displayText,
@@ -397,7 +542,7 @@ class AppController extends ChangeNotifier {
       final srcNote = hits.isEmpty
           ? 'источники: не найдены'
           : 'источники: ${hits.length}';
-      chat.add(
+      session.messages.add(
         ChatMessage(
           role: ChatRole.system,
           content: settings.qaOnly
@@ -415,12 +560,14 @@ class AppController extends ChangeNotifier {
       }
     } catch (e) {
       chatError = e.toString();
-      chat.add(ChatMessage(role: ChatRole.error, content: e.toString()));
+      session.messages
+          .add(ChatMessage(role: ChatRole.error, content: e.toString()));
       if (settings.llmMode == LlmMode.local) {
         ollamaOnline = false;
       }
     } finally {
       chatBusy = false;
+      await _persistActiveSession();
       notifyListeners();
     }
   }
@@ -452,7 +599,7 @@ class AppController extends ChangeNotifier {
       editorDirty = false;
     }
     await refreshVault();
-    chat.add(
+    activeSession?.messages.add(
       ChatMessage(
         role: ChatRole.system,
         content: delN > 0
@@ -460,6 +607,7 @@ class AppController extends ChangeNotifier {
             : 'Утверждён пакет ($n файл.): ${written.join(', ')}',
       ),
     );
+    await _persistActiveSession();
     notifyListeners();
     return written;
   }
@@ -467,21 +615,23 @@ class AppController extends ChangeNotifier {
   void rejectPendingDraft() {
     if (pendingDraft == null) return;
     final n = pendingDraft!.files.length;
-    chat.add(
+    activeSession?.messages.add(
       ChatMessage(
         role: ChatRole.system,
         content: 'Пакет черновика отклонён ($n файл.). Vault не изменён.',
       ),
     );
     pendingDraft = null;
+    _persistActiveSession();
     notifyListeners();
   }
 
-  void clearChat() {
-    chat.clear();
+  Future<void> clearChat() async {
+    activeSession?.messages.clear();
     pendingDraft = null;
     lastRetrievalSources = [];
     chatError = null;
+    await _persistActiveSession();
     notifyListeners();
   }
 

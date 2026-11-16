@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/agent_preset.dart';
 import '../models/app_settings.dart';
 import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
@@ -22,6 +25,8 @@ class SettingsStore extends ChangeNotifier {
   static const _kQaOnly = 'qaOnly';
   static const _kSystemPrompt = 'systemPrompt';
   static const _kPromptVersion = 'systemPromptVersion';
+  static const _kAgentPresets = 'agentPresetsJson';
+  static const _kActivePresetId = 'activeAgentPresetId';
 
   static const _kGeminiApiKey = 'gemini_api_key';
   static const _kGroqApiKey = 'groq_api_key';
@@ -34,9 +39,20 @@ class SettingsStore extends ChangeNotifier {
   String? _groqApiKey;
   String? _openRouterApiKey;
   bool _loaded = false;
+  List<AgentPreset> _presets = [AgentPreset.clarifyingDefault];
+  String _activePresetId = AgentPreset.defaultPresetId;
 
   AppSettings get settings => _settings;
   bool get isLoaded => _loaded;
+  List<AgentPreset> get presets => List.unmodifiable(_presets);
+  String get activePresetId => _activePresetId;
+
+  AgentPreset get activePreset {
+    return _presets.firstWhere(
+      (p) => p.id == _activePresetId,
+      orElse: () => AgentPreset.clarifyingDefault,
+    );
+  }
 
   bool get hasGeminiApiKey => _nonEmpty(_geminiApiKey);
   bool get hasGroqApiKey => _nonEmpty(_groqApiKey);
@@ -124,6 +140,25 @@ class SettingsStore extends ChangeNotifier {
       systemPrompt: prompt,
     );
 
+    _presets = _loadPresets(prefs, fallbackPrompt: prompt);
+    _activePresetId =
+        prefs.getString(_kActivePresetId) ?? AgentPreset.defaultPresetId;
+    if (!_presets.any((p) => p.id == _activePresetId)) {
+      _activePresetId = _presets.first.id;
+    }
+    // Keep settings.systemPrompt aligned with active preset when it matches a preset.
+    final active = activePreset;
+    if (_settings.systemPrompt.trim() == active.systemPrompt.trim() ||
+        AppSettings.isShippedDefaultPrompt(_settings.systemPrompt)) {
+      // If active is clarifying default and prompt migrated, sync.
+      if (active.id == AgentPreset.defaultPresetId &&
+          AppSettings.isShippedDefaultPrompt(_settings.systemPrompt)) {
+        _settings = _settings.copyWith(
+          systemPrompt: AgentPreset.clarifyingDefault.systemPrompt,
+        );
+      }
+    }
+
     try {
       _geminiApiKey = await _secure.read(key: _kGeminiApiKey);
       _groqApiKey = await _secure.read(key: _kGroqApiKey);
@@ -133,6 +168,95 @@ class SettingsStore extends ChangeNotifier {
     }
 
     _loaded = true;
+    notifyListeners();
+  }
+
+  List<AgentPreset> _loadPresets(
+    SharedPreferences prefs, {
+    required String fallbackPrompt,
+  }) {
+    final raw = prefs.getString(_kAgentPresets);
+    final list = <AgentPreset>[];
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map<String, dynamic>) {
+              list.add(AgentPreset.fromJson(item));
+            } else if (item is Map) {
+              list.add(AgentPreset.fromJson(Map<String, dynamic>.from(item)));
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    if (!list.any((p) => p.id == AgentPreset.defaultPresetId)) {
+      list.insert(
+        0,
+        AgentPreset.clarifyingDefault.copyWith(
+          systemPrompt: AppSettings.isShippedDefaultPrompt(fallbackPrompt)
+              ? AppSettings.defaultSystemPrompt
+              : AgentPreset.clarifyingDefault.systemPrompt,
+        ),
+      );
+    } else {
+      // Refresh built-in clarifying prompt text when user still on shipped default.
+      final i = list.indexWhere((p) => p.id == AgentPreset.defaultPresetId);
+      if (i >= 0 &&
+          AppSettings.isShippedDefaultPrompt(list[i].systemPrompt)) {
+        list[i] = AgentPreset.clarifyingDefault;
+      }
+    }
+    return list;
+  }
+
+  Future<void> _persistPresets() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _kAgentPresets,
+      jsonEncode(_presets.map((p) => p.toJson()).toList()),
+    );
+    await prefs.setString(_kActivePresetId, _activePresetId);
+  }
+
+  Future<void> selectPreset(String id) async {
+    final preset = _presets.cast<AgentPreset?>().firstWhere(
+          (p) => p!.id == id,
+          orElse: () => null,
+        );
+    if (preset == null) return;
+    _activePresetId = id;
+    _settings = _settings.copyWith(systemPrompt: preset.systemPrompt);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kSystemPrompt, preset.systemPrompt);
+    await prefs.setString(_kActivePresetId, id);
+    notifyListeners();
+  }
+
+  Future<void> savePreset(AgentPreset preset) async {
+    final i = _presets.indexWhere((p) => p.id == preset.id);
+    if (i >= 0) {
+      _presets[i] = preset;
+    } else {
+      _presets.add(preset);
+    }
+    if (_activePresetId == preset.id) {
+      _settings = _settings.copyWith(systemPrompt: preset.systemPrompt);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kSystemPrompt, preset.systemPrompt);
+    }
+    await _persistPresets();
+    notifyListeners();
+  }
+
+  Future<void> deletePreset(String id) async {
+    if (id == AgentPreset.defaultPresetId) return;
+    _presets.removeWhere((p) => p.id == id);
+    if (_activePresetId == id) {
+      await selectPreset(AgentPreset.defaultPresetId);
+    }
+    await _persistPresets();
     notifyListeners();
   }
 

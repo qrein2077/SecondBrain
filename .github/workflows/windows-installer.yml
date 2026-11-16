@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: windows-installer-${{ github.workflow }}-${{ github.ref }}
@@ -80,3 +80,21 @@ jobs:
           path: dist/SecondBrain-Setup-*.exe
           if-no-files-found: error
           retention-days: 30
+
+      # Soft unsigned GitHub Release on main only (in-app update checker prefers Releases).
+      # continue-on-error: same tag on later main pushes should not fail the installer job.
+      - name: Publish GitHub Release (main)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: SecondBrain ${{ steps.ver.outputs.version }}
+          body: |
+            Windows installer (unsigned). Install over previous version; AppData settings are kept.
+            Bump `pubspec.yaml` version for a new Release tag.
+          files: dist/SecondBrain-Setup-*.exe
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

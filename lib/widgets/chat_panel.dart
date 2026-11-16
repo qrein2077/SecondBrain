@@ -6,6 +6,7 @@ import '../models/llm_mode.dart';
 import '../screens/draft_preview_screen.dart';
 import '../services/whisper_stt_service.dart';
 import '../state/app_controller.dart';
+import 'wiki_text.dart';
 
 class ChatPanel extends StatefulWidget {
   const ChatPanel({super.key, required this.controller});
@@ -140,6 +141,36 @@ class _ChatPanelState extends State<ChatPanel> {
     return parts.join(' · ');
   }
 
+  Future<void> _renameSession(BuildContext context) async {
+    final s = c.activeSession;
+    if (s == null) return;
+    final ctrl = TextEditingController(text: s.title);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Переименовать чат'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (name != null) await c.renameSession(s.id, name);
+  }
+
   String _emptyHint() {
     if (c.settings.qaOnly) {
       return 'Режим «Только ответы»: спросите, например, '
@@ -169,37 +200,34 @@ class _ChatPanelState extends State<ChatPanel> {
             children: [
               Expanded(
                 child: Text(
-                  'Чат с агентом',
+                  'Чат',
                   style: Theme.of(context).textTheme.titleMedium,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               Icon(
-                c.ollamaOnline || c.cloudReachable
-                    ? Icons.circle
-                    : Icons.circle_outlined,
+                c.activeRouteOnline ? Icons.circle : Icons.circle_outlined,
                 size: 12,
-                color: c.ollamaOnline || c.cloudReachable
-                    ? Colors.green
-                    : Colors.grey,
+                color: c.activeRouteOnline ? Colors.green : Colors.redAccent,
               ),
               const SizedBox(width: 4),
               Flexible(
                 child: Text(
-                  _backendStatus(c),
+                  '${_backendStatus(c)} · ${c.activeRouteLabel}',
                   style: Theme.of(context).textTheme.bodySmall,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               IconButton(
-                tooltip: 'Проверить LLM',
-                onPressed: () => c.checkBackends(),
+                tooltip: 'Новый чат',
+                onPressed: c.chatBusy ? null : () => c.createSession(),
                 visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.wifi_tethering, size: 20),
+                icon: const Icon(Icons.add_comment_outlined, size: 20),
               ),
               IconButton(
-                tooltip: 'Очистить чат',
-                onPressed: c.chat.isEmpty ? null : () => c.clearChat(),
+                tooltip: 'Очистить текущий чат',
+                onPressed:
+                    c.chat.isEmpty ? null : () => c.clearChat(),
                 visualDensity: VisualDensity.compact,
                 icon: const Icon(Icons.delete_outline, size: 20),
               ),
@@ -207,9 +235,58 @@ class _ChatPanelState extends State<ChatPanel> {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  // ignore: deprecated_member_use
+                  value: c.activeSession?.id,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                    labelText: 'Сессия',
+                  ),
+                  items: [
+                    for (final s in c.sessions)
+                      DropdownMenuItem(
+                        value: s.id,
+                        child: Text(
+                          s.title,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: c.chatBusy
+                      ? null
+                      : (id) {
+                          if (id != null) c.switchSession(id);
+                        },
+                ),
+              ),
+              IconButton(
+                tooltip: 'Переименовать сессию',
+                onPressed: c.activeSession == null
+                    ? null
+                    : () => _renameSession(context),
+                icon: const Icon(Icons.drive_file_rename_outline, size: 20),
+              ),
+              IconButton(
+                tooltip: 'Удалить сессию',
+                onPressed: c.activeSession == null
+                    ? null
+                    : () => c.deleteSession(c.activeSession!.id),
+                icon: const Icon(Icons.playlist_remove, size: 20),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
           child: Text(
-            '${c.settings.llmMode.labelRu} · ${c.activeModelLabel} · concurrency 1',
+            '${c.settings.llmMode.labelRu} · ${c.activeModelLabel} · '
+            'пресет: ${c.settingsStore.activePreset.name}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
@@ -316,7 +393,11 @@ class _ChatPanelState extends State<ChatPanel> {
                               style: Theme.of(context).textTheme.labelSmall,
                             ),
                             const SizedBox(height: 4),
-                            SelectableText(m.content),
+                            if (m.role == ChatRole.assistant ||
+                                m.role == ChatRole.user)
+                              WikiText(text: m.content, controller: c)
+                            else
+                              SelectableText(m.content),
                             if (m.role == ChatRole.assistant &&
                                 m.sources.isNotEmpty) ...[
                               const SizedBox(height: 8),

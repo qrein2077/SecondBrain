@@ -1,9 +1,12 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../models/agent_preset.dart';
 import '../models/app_settings.dart';
 import '../models/cloud_provider.dart';
 import '../models/llm_mode.dart';
+import '../services/update_checker.dart';
 import '../state/app_controller.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -134,6 +137,119 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _resetPrompt() {
     setState(() => _promptCtrl.text = AppSettings.defaultSystemPrompt);
+  }
+
+  Future<void> _applyPreset(String id) async {
+    await widget.controller.selectAgentPreset(id);
+    setState(() {
+      _promptCtrl.text = widget.controller.settings.systemPrompt;
+    });
+  }
+
+  Future<void> _saveCurrentAsPreset() async {
+    final nameCtrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Сохранить пресет'),
+        content: TextField(
+          controller: nameCtrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Название',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(nameCtrl.text),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+    nameCtrl.dispose();
+    if (name == null || name.trim().isEmpty) return;
+    final preset = AgentPreset(
+      id: 'p_${DateTime.now().microsecondsSinceEpoch}',
+      name: name.trim(),
+      systemPrompt: _promptCtrl.text.trim().isEmpty
+          ? AppSettings.defaultSystemPrompt
+          : _promptCtrl.text,
+    );
+    await widget.controller.settingsStore.savePreset(preset);
+    await _applyPreset(preset.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Пресет «${preset.name}» сохранён')),
+      );
+    }
+  }
+
+  Future<void> _updateActivePresetPrompt() async {
+    final id = widget.controller.activePresetId;
+    final existing = widget.controller.agentPresets.firstWhere(
+      (p) => p.id == id,
+      orElse: () => AgentPreset.clarifyingDefault,
+    );
+    await widget.controller.settingsStore.savePreset(
+      existing.copyWith(
+        systemPrompt: _promptCtrl.text.trim().isEmpty
+            ? AppSettings.defaultSystemPrompt
+            : _promptCtrl.text,
+      ),
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Пресет обновлён')),
+      );
+      setState(() {});
+    }
+  }
+
+  Future<void> _checkUpdates() async {
+    final result = await UpdateChecker().check(currentVersion: '1.0.0');
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Обновления'),
+        content: Text(result.message),
+        actions: [
+          TextButton(
+            onPressed: () => launchUrl(
+              Uri.parse(result.actionsUrl),
+              mode: LaunchMode.externalApplication,
+            ),
+            child: const Text('Actions'),
+          ),
+          if (result.releaseUrl != null)
+            TextButton(
+              onPressed: () => launchUrl(
+                Uri.parse(result.releaseUrl!),
+                mode: LaunchMode.externalApplication,
+              ),
+              child: const Text('Release'),
+            ),
+          if (result.downloadUrl != null)
+            FilledButton(
+              onPressed: () => launchUrl(
+                Uri.parse(result.downloadUrl!),
+                mode: LaunchMode.externalApplication,
+              ),
+              child: const Text('Скачать .exe'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Закрыть'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _keyField({
@@ -425,17 +541,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }),
           ),
           const SizedBox(height: 24),
-          Row(
+          const Text(
+            'Пресеты агента',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Default — «Уточняющий» (clarifying). Можно сохранить свои '
+            'именованные system prompt и переключаться.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            // ignore: deprecated_member_use
+            value: widget.controller.activePresetId,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              labelText: 'Активный пресет',
+            ),
+            items: [
+              for (final p in widget.controller.agentPresets)
+                DropdownMenuItem(value: p.id, child: Text(p.name)),
+            ],
+            onChanged: (id) {
+              if (id != null) _applyPreset(id);
+            },
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
             children: [
-              const Expanded(
-                child: Text(
-                  'System prompt агента',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                ),
+              TextButton(
+                onPressed: _saveCurrentAsPreset,
+                child: const Text('Сохранить как пресет'),
+              ),
+              TextButton(
+                onPressed: _updateActivePresetPrompt,
+                child: const Text('Обновить текущий'),
+              ),
+              TextButton(
+                onPressed: widget.controller.activePresetId ==
+                        AgentPreset.defaultPresetId
+                    ? null
+                    : () async {
+                        await widget.controller.settingsStore
+                            .deletePreset(widget.controller.activePresetId);
+                        setState(() {
+                          _promptCtrl.text =
+                              widget.controller.settings.systemPrompt;
+                        });
+                      },
+                child: const Text('Удалить пресет'),
               ),
               TextButton(
                 onPressed: _resetPrompt,
-                child: const Text('Сбросить'),
+                child: const Text('Сбросить текст'),
               ),
             ],
           ),
@@ -446,7 +606,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               alignLabelWithHint: true,
+              labelText: 'System prompt',
             ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Обновления',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Сначала GitHub Releases; если Release нет — скачайте артефакт '
+            'SecondBrain-Setup-Windows из Actions (unsigned OK).',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          FilledButton.tonalIcon(
+            onPressed: _checkUpdates,
+            icon: const Icon(Icons.system_update_alt),
+            label: const Text('Проверить обновления'),
           ),
         ],
       ),

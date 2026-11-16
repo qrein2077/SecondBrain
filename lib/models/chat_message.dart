@@ -16,6 +16,56 @@ class ChatMessage {
 
   /// Vault-relative note paths used for RAG-lite grounding (assistant turns).
   final List<String> sources;
+
+  Map<String, dynamic> toJson() => {
+        'role': role.name,
+        'content': content,
+        'createdAt': createdAt.toIso8601String(),
+        'sources': sources,
+        if (draftBundle != null)
+          'draftBundle': {
+            'files': draftBundle!.files.map((f) => f.toJson()).toList(),
+          },
+      };
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) {
+    final roleName = json['role'] as String? ?? 'system';
+    final role = ChatRole.values.firstWhere(
+      (r) => r.name == roleName,
+      orElse: () => ChatRole.system,
+    );
+    NoteDraftBundle? draft;
+    final rawDraft = json['draftBundle'];
+    if (rawDraft is Map) {
+      final filesRaw = rawDraft['files'];
+      final files = <NoteDraft>[];
+      if (filesRaw is List) {
+        for (final item in filesRaw) {
+          if (item is Map<String, dynamic>) {
+            files.add(NoteDraft.fromJson(item));
+          } else if (item is Map) {
+            files.add(NoteDraft.fromJson(Map<String, dynamic>.from(item)));
+          }
+        }
+      }
+      if (files.isNotEmpty) draft = NoteDraftBundle(files: files);
+    }
+    final sourcesRaw = json['sources'];
+    final sources = <String>[];
+    if (sourcesRaw is List) {
+      for (final s in sourcesRaw) {
+        if (s is String && s.isNotEmpty) sources.add(s);
+      }
+    }
+    return ChatMessage(
+      role: role,
+      content: json['content'] as String? ?? '',
+      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+          DateTime.now(),
+      draftBundle: draft,
+      sources: sources,
+    );
+  }
 }
 
 class NoteDraft {
